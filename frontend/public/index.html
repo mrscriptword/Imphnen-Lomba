@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Cafe Dashboard</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f9; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; }
+        .number { font-size: 3rem; font-weight: bold; color: #2c3e50; }
+        .label { color: #7f8c8d; font-size: 1.2rem; }
+        h1 { text-align: center; color: #333; }
+        .status { text-align: center; font-size: 0.9rem; color: #888; margin-top: 10px;}
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>☕ Smart Cafe Analytics</h1>
+        
+        <div class="card-grid">
+            <div class="card">
+                <div class="label">Pengunjung Saat Ini</div>
+                <div class="number" id="occupancy">0</div>
+            </div>
+
+            <div class="card">
+                <div class="label">Total Masuk Hari Ini</div>
+                <div class="number" id="total-in">0</div>
+            </div>
+        </div>
+
+        <p class="status">Mengambil data secara real-time...</p>
+    </div>
+
+    <script>
+        // Fungsi untuk mengambil data dari Backend API
+        async function fetchData() {
+            try {
+                // Fetch ke alamat Backend (Port 5000)
+                const response = await fetch('http://localhost:5000/api/visitor-stats');
+                const data = await response.json();
+
+                // Update angka di HTML
+                document.getElementById('occupancy').innerText = data.current_occupancy || 0;
+                document.getElementById('total-in').innerText = data.total_in || 0;
+
+            } catch (error) {
+                console.error("Gagal mengambil data:", error);
+            }
+        }
+
+        // Panggil fungsi fetchData setiap 2 detik (Auto Refresh)
+        setInterval(fetchData, 2000);
+        
+        // Panggil sekali saat halaman dimuat pertama kali
+        fetchData();
+    </script>
+</body>
+</html>
