@@ -333,8 +333,6 @@ while True:
                 x1, y1, x2, y2 = box
                 cx, cy = int((x1+x2)/2), int((y1+y2)/2)
                 in_zone = (COFFEE_ZONE[0] < cx < COFFEE_ZONE[2]) and (COFFEE_ZONE[1] < cy < COFFEE_ZONE[3])
-                
-                # Cek Buffer untuk Restore Data (Jika gelas sempat hilang)
                 if track_id not in cup_entry_times:
                     restored = False
                     valid_buffer = [c for c in lost_cups_buffer if current_time - c['lost_time'] < FLICKER_TOLERANCE_SEC]
@@ -360,7 +358,6 @@ while True:
                 was_in_zone = cup_zone_state.get(track_id, False)
 
                 if in_zone:
-                    # Cari siapa pembuatnya (Pegawai terdekat)
                     nearby = get_closest_person_identity((cx, cy), current_people_detected)
                     if nearby and nearby != "PENGUNJUNG":
                         cup_maker_memory[track_id] = nearby
@@ -395,7 +392,6 @@ while True:
                 cup_zone_state[track_id] = in_zone
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
-    # --- CLEANUP (Menangani Gelas yang Hilang dari Layar) ---
     for tid in list(cup_zone_state.keys()):
         if tid not in current_cup_ids and cup_zone_state[tid]:
             if frame_idx - cup_last_seen.get(tid, 0) > GRACE_FRAMES:
@@ -409,15 +405,11 @@ while True:
                     if maker_name in employee_stats:
                         employee_stats[maker_name] += 1
                         cup_cooldowns[tid] = current_time
-                        
-                        # --- UPDATE DATABASE CLOUD ---
                         update_employee_db(maker_name, 1, "Active")
                         log_event("PRODUCTION", f"Kopi diantar oleh {maker_name} (Durasi: {int(duration_in_zone)}s)")
                         
                         speak(f"Kopi selesai, poin untuk {maker_name}")
                         is_valid = True
-                
-                # Masukkan ke BUFFER jika belum valid (mungkin flicker)
                 if not is_valid and duration_in_zone < MIN_PRODUCTION_TIME:
                     last_pos = cup_last_coords.get(tid)
                     if last_pos:
@@ -427,18 +419,11 @@ while True:
                             'lost_time': current_time,
                             'maker': maker_name
                         })
-                
-                # Bersihkan data memori
                 cup_entry_times.pop(tid, None)
                 cup_zone_state[tid] = False
                 if tid in cup_maker_memory: del cup_maker_memory[tid]
                 if tid in cup_last_coords: del cup_last_coords[tid]
-
-    # ==========================================
-    # 5. KIRIM DATA KE DASHBOARD (PERIODIK)
-    # ==========================================
     if current_time - last_visitor_sent_time > VISITOR_SEND_INTERVAL:
-        # Kirim data ke MongoDB agar grafik di website bergerak
         current_occupancy = len(current_people_detected)
         send_visitor_stats(customer_in_count, current_occupancy)
         print(f"📡 Update Web: Visitor={customer_in_count}, Occupancy={current_occupancy}")

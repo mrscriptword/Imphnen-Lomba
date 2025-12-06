@@ -3,60 +3,211 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Cafe Dashboard</title>
+    <title>Smart Cafe Executive</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <style>
-        body { font-family: sans-serif; background-color: #f4f4f9; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
-        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; }
-        .number { font-size: 3rem; font-weight: bold; color: #2c3e50; }
-        .label { color: #7f8c8d; font-size: 1.2rem; }
-        h1 { text-align: center; color: #333; }
-        .status { text-align: center; font-size: 0.9rem; color: #888; margin-top: 10px;}
+        /* --- COPY STYLE DARI STREAMLIT --- */
+        body {
+            background-color: #050505;
+            background-image: radial-gradient(circle at 50% 0%, #1c1c2e 0%, #050505 60%);
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+            margin: 0; padding: 20px;
+        }
+
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 30px; padding: 0 10px;
+        }
+        .status-badge {
+            background: rgba(0, 255, 0, 0.1); color: #00E396;
+            padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: bold;
+            border: 1px solid rgba(0, 255, 0, 0.2);
+        }
+
+        /* --- GLASS CARDS --- */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 20px;
+            transition: transform 0.2s;
+        }
+        .glass-card:hover {
+            border-color: rgba(79, 172, 254, 0.4);
+            transform: translateY(-2px);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* --- KPI TYPOGRAPHY --- */
+        .metric-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: #8F9BB3; font-weight: 600; margin-bottom: 8px; }
+        .metric-value {
+            font-size: 36px; font-weight: 800;
+            background: -webkit-linear-gradient(0deg, #fff, #a0a0a0);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+
+        /* --- GRID LAYOUT --- */
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .chart-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
+        
+        /* --- TABLE LOGS --- */
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; color: #8F9BB3; padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .log-event { font-weight: bold; color: #4facfe; }
+        .log-violation { color: #FF4560; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h1>☕ Smart Cafe Analytics</h1>
-        
-        <div class="card-grid">
-            <div class="card">
-                <div class="label">Pengunjung Saat Ini</div>
-                <div class="number" id="occupancy">0</div>
-            </div>
-
-            <div class="card">
-                <div class="label">Total Masuk Hari Ini</div>
-                <div class="number" id="total-in">0</div>
-            </div>
+    <div class="header">
+        <div>
+            <h1 style="margin:0;">☕ Smart Cafe Executive</h1>
+            <small style="color: #888;">Real-time Monitoring Dashboard</small>
         </div>
+        <div class="status-badge">SYSTEM ONLINE 🟢</div>
+    </div>
 
-        <p class="status">Mengambil data secara real-time...</p>
+    <div class="kpi-grid">
+        <div class="glass-card">
+            <div class="metric-title">Total Produksi</div>
+            <div class="metric-value" id="kpi-cups">0</div>
+        </div>
+        <div class="glass-card">
+            <div class="metric-title">Traffic Visitor</div>
+            <div class="metric-value" id="kpi-visitor">0</div>
+        </div>
+        <div class="glass-card">
+            <div class="metric-title">Avg. Service Time</div>
+            <div class="metric-value"><span id="kpi-speed">0</span><small style="font-size:16px">s</small></div>
+        </div>
+        <div class="glass-card">
+            <div class="metric-title">Pelanggaran SOP</div>
+            <div class="metric-value" id="kpi-violation" style="color: #FF4560;">0</div>
+        </div>
+    </div>
+
+    <div class="chart-grid">
+        <div class="glass-card">
+            <div class="metric-title">📊 Aktivitas Hari Ini</div>
+            <canvas id="activityChart" style="max-height: 250px;"></canvas>
+        </div>
+        <div class="glass-card">
+            <div class="metric-title">🏆 Leaderboard Barista</div>
+            <canvas id="leaderboardChart" style="max-height: 250px;"></canvas>
+        </div>
+    </div>
+
+    <div class="glass-card">
+        <div class="metric-title">📝 Live Audit Log</div>
+        <div style="overflow-y: auto; max-height: 300px;">
+            <table id="logTable">
+                <thead><tr><th>Waktu</th><th>Event</th><th>Detail</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
     </div>
 
     <script>
-        // Fungsi untuk mengambil data dari Backend API
-        async function fetchData() {
+        // --- SETUP CHART JS (Global Style) ---
+        Chart.defaults.color = '#8F9BB3';
+        Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
+
+        // Inisialisasi Chart Kosong
+        let activityChartCtx = document.getElementById('activityChart').getContext('2d');
+        let activityChart = new Chart(activityChartCtx, {
+            type: 'bar',
+            data: { labels: [], datasets: [] },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        let leaderboardChartCtx = document.getElementById('leaderboardChart').getContext('2d');
+        let leaderboardChart = new Chart(leaderboardChartCtx, {
+            type: 'doughnut',
+            data: { labels: [], datasets: [] },
+            options: { responsive: true, maintainAspectRatio: false, cutout: '70%' }
+        });
+
+        // --- FUNGSI UPDATE DATA ---
+        async function updateDashboard() {
             try {
-                // Fetch ke alamat Backend (Port 5000)
-                const response = await fetch('http://localhost:5000/api/visitor-stats');
+                const response = await fetch('http://localhost:5000/api/dashboard/summary');
                 const data = await response.json();
 
-                // Update angka di HTML
-                document.getElementById('occupancy').innerText = data.current_occupancy || 0;
-                document.getElementById('total-in').innerText = data.total_in || 0;
+                // 1. UPDATE KPI
+                document.getElementById('kpi-cups').innerText = data.kpi.total_cups;
+                document.getElementById('kpi-visitor').innerText = data.kpi.total_visitors;
+                document.getElementById('kpi-speed').innerText = data.kpi.avg_speed;
+                document.getElementById('kpi-violation').innerText = data.kpi.violations;
+
+                // 2. UPDATE TABLE LOGS
+                const tbody = document.querySelector('#logTable tbody');
+                tbody.innerHTML = ''; // Bersihkan tabel lama
+                data.recent_logs.forEach(log => {
+                    const time = new Date(log.timestamp).toLocaleTimeString();
+                    const eventClass = log.event === 'VIOLATION' ? 'log-violation' : 'log-event';
+                    const row = `<tr>
+                        <td>${time}</td>
+                        <td class="${eventClass}">${log.event}</td>
+                        <td>${log.detail}</td>
+                    </tr>`;
+                    tbody.innerHTML += row;
+                });
+
+                // 3. UPDATE CHART LEADERBOARD
+                const empNames = data.leaderboard.map(e => e.name);
+                const empCups = data.leaderboard.map(e => e.cups);
+                
+                leaderboardChart.data.labels = empNames;
+                leaderboardChart.data.datasets = [{
+                    data: empCups,
+                    backgroundColor: ['#4facfe', '#00f2fe', '#00E396', '#FEB019'],
+                    borderWidth: 0
+                }];
+                leaderboardChart.update();
+
+                // 4. UPDATE CHART ACTIVITY (Simple Logic: Count event per hour)
+                // Kita proses data hourly_activity dari backend disini
+                const hours = Array(24).fill(0).map((_, i) => i); // [0, 1, ... 23]
+                const visitorCounts = Array(24).fill(0);
+                const productionCounts = Array(24).fill(0);
+
+                data.hourly_activity.forEach(log => {
+                    const h = new Date(log.timestamp).getHours();
+                    if (log.event === 'VISITOR') visitorCounts[h]++;
+                    if (log.event === 'PRODUCTION') productionCounts[h]++;
+                });
+
+                activityChart.data.labels = hours.map(h => `${h}:00`);
+                activityChart.data.datasets = [
+                    {
+                        label: 'Visitor',
+                        data: visitorCounts,
+                        type: 'line',
+                        borderColor: '#00E396',
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Produksi',
+                        data: productionCounts,
+                        type: 'bar',
+                        backgroundColor: 'rgba(79, 172, 254, 0.6)'
+                    }
+                ];
+                activityChart.update();
 
             } catch (error) {
-                console.error("Gagal mengambil data:", error);
+                console.error("Gagal update dashboard:", error);
             }
         }
 
-        // Panggil fungsi fetchData setiap 2 detik (Auto Refresh)
-        setInterval(fetchData, 2000);
-        
-        // Panggil sekali saat halaman dimuat pertama kali
-        fetchData();
+        // Auto Refresh tiap 2 detik
+        setInterval(updateDashboard, 2000);
+        updateDashboard(); // Jalan pertama kali
     </script>
 </body>
 </html>
