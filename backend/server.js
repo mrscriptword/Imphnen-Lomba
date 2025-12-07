@@ -10,17 +10,22 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// --- KONEKSI DATABASE ---
+// --- KONEKSI DATABASE (PERBAIKAN UTAMA DISINI) ---
 const mongoURI = process.env.MONGO_URI;
 
-mongoose.connect(mongoURI)
-    .then(() => console.log('✅ Backend: Terkoneksi ke MongoDB Atlas'))
+// [FIX] Tambahkan { dbName: 'I_MBG' } agar backend tidak nyasar ke database 'test'
+mongoose.connect(mongoURI, { dbName: 'I_MBG' }) 
+    .then(() => {
+        console.log('✅ Backend: Terkoneksi ke MongoDB Atlas');
+        console.log('📂 Database Aktif: I_MBG'); // Konfirmasi visual di terminal
+    })
     .catch(err => console.error('❌ Backend Error:', err));
 
-// --- DEFINISI SCHEMA (MODEL DATA) ---
-// Kita definisikan di sini agar satu file langsung jalan (tanpa perlu folder models terpisah)
+// =========================================================
+// DEFINISI SCHEMA (MODEL DATA)
+// =========================================================
 
-// 1. Schema Pegawai (Untuk Leaderboard)
+// 1. Schema Pegawai
 const EmployeeSchema = new mongoose.Schema({
     name: String,
     cups: Number,
@@ -29,7 +34,7 @@ const EmployeeSchema = new mongoose.Schema({
 }, { collection: 'employee_performance' });
 const Employee = mongoose.model('Employee', EmployeeSchema);
 
-// 2. Schema Log Sistem (Untuk Audit & Grafik Aktivitas)
+// 2. Schema Log Sistem
 const LogSchema = new mongoose.Schema({
     timestamp: Date,
     event: String,
@@ -37,57 +42,44 @@ const LogSchema = new mongoose.Schema({
 }, { collection: 'system_logs' });
 const SystemLog = mongoose.model('SystemLog', LogSchema);
 
-// 3. Schema Visitor (Untuk Data Statistik Pengunjung)
-const VisitorSchema = new mongoose.Schema({
-    timestamp: Date,
-    camera_id: String,
-    total_in: Number,
-    current_occupancy: Number
-}, { collection: 'visitor_logs' });
-const Visitor = mongoose.model('Visitor', VisitorSchema);
-
-
 // =========================================================
 // API ROUTES
 // =========================================================
 
-// Test Route
 app.get('/', (req, res) => {
-    res.send('☕ Smart Cafe API Server is Running...');
+    res.send('☕ Smart Cafe API is Running (All Time Mode)...');
 });
 
-// --- API KHUSUS DASHBOARD (AGGREGATION) ---
-// Ini adalah "Otak" yang memberi makan frontend Glassmorphism
+// --- API DASHBOARD UTAMA (MODE: BACA SEMUA SEJARAH DATA) ---
 app.get('/api/dashboard/summary', async (req, res) => {
     try {
-        // Tentukan rentang waktu "Hari Ini" (Mulai jam 00:00)
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+        console.log("\n🔄 [REQ] Frontend meminta data dashboard...");
 
-        // --- 1. HITUNG KPI ---
+        // --- 1. AMBIL DATA DARI MONGO (TANPA FILTER TANGGAL) ---
         
-        // A. Total Cups (Semua Waktu)
-        const employees = await Employee.find().sort({ cups: -1 }); // Sekalian buat leaderboard
+        // A. KPI: Total Cups (Akumulasi semua waktu)
+        const employees = await Employee.find().sort({ cups: -1 });
         const totalCups = employees.reduce((acc, curr) => acc + (curr.cups || 0), 0);
 
-        // B. Total Visitor (Hari Ini)
-        // Kita hitung berapa kali event "VISITOR" tercatat di logs hari ini
-        // (Lebih akurat daripada total_in kumulatif jika server restart)
+        // B. KPI: Total Visitors (SEMUA DATA)
         const totalVisitors = await SystemLog.countDocuments({
-            event: "VISITOR",
-            timestamp: { $gte: todayStart }
+            event: "VISITOR"
         });
 
-        // C. Avg Speed (Rata-rata durasi pembuatan kopi hari ini)
+        // C. KPI: Pelanggaran (SEMUA DATA)
+        const violations = await SystemLog.countDocuments({
+            event: "VIOLATION"
+        });
+
+        // D. KPI: Avg Speed (Rata-rata durasi pembuatan kopi - SEMUA DATA)
         const prodLogs = await SystemLog.find({
-            event: "PRODUCTION",
-            timestamp: { $gte: todayStart }
+            event: "PRODUCTION"
         });
 
         let avgSpeed = 0;
         let totalDuration = 0;
         let countProd = 0;
-        const durationRegex = /Durasi: (\d+)s/; // Regex ambil angka dari teks "Durasi: 45s"
+        const durationRegex = /Durasi: (\d+)s/;
 
         prodLogs.forEach(log => {
             const match = log.detail.match(durationRegex);
@@ -96,27 +88,32 @@ app.get('/api/dashboard/summary', async (req, res) => {
                 countProd++;
             }
         });
-        if (countProd > 0) avgSpeed = Math.round(totalDuration / countProd);
 
-        // D. Pelanggaran (Hari Ini)
-        const violations = await SystemLog.countDocuments({
-            event: "VIOLATION",
-            timestamp: { $gte: todayStart }
-        });
+        if (countProd > 0) {
+            avgSpeed = Math.round(totalDuration / countProd);
+        }
 
-        // --- 2. DATA GRAFIK AKTIVITAS ---
-        // Ambil log hari ini untuk diplot jam-nya di Frontend
+        // --- 2. DATA UNTUK GRAFIK (SEMUA DATA) ---
+        
+        // Ambil log aktivitas untuk grafik
         const hourlyLogs = await SystemLog.find({
-            timestamp: { $gte: todayStart },
-            event: { $in: ['VISITOR', 'PRODUCTION'] } // Hanya ambil event penting
+            event: { $in: ['VISITOR', 'PRODUCTION'] }
         }).select('timestamp event');
 
-        // --- 3. RECENT LOGS (TABEL) ---
+        // Ambil 50 log terakhir untuk Tabel Bawah
         const recentLogs = await SystemLog.find()
-            .sort({ timestamp: -1 })
+            .sort({ timestamp: -1 }) // Paling baru diatas
             .limit(50);
 
-        // --- KIRIM JSON KE FRONTEND ---
+        // --- 3. DEBUG LOGGING ---
+        console.log(`   📊 Stats: ${totalVisitors} Visitors | ${totalCups} Cups | ${violations} Violations`);
+        if (totalVisitors > 0) {
+             console.log("   ✅ Data ditemukan (termasuk data lama).");
+        } else {
+             console.log("   ⚠️ Data masih 0. Pastikan database 'I_MBG' -> 'system_logs' ada isinya.");
+        }
+
+        // --- 4. KIRIM KE FRONTEND ---
         res.json({
             kpi: {
                 total_cups: totalCups,
@@ -124,29 +121,21 @@ app.get('/api/dashboard/summary', async (req, res) => {
                 avg_speed: avgSpeed,
                 violations: violations
             },
-            leaderboard: employees,     // Untuk Pie Chart
-            hourly_activity: hourlyLogs, // Untuk Bar/Line Chart
-            recent_logs: recentLogs     // Untuk Tabel Bawah
+            leaderboard: employees,
+            hourly_activity: hourlyLogs,
+            recent_logs: recentLogs
         });
 
     } catch (error) {
-        console.error("Dashboard Error:", error);
+        console.error("❌ ERROR di API Dashboard:", error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// --- API TAMBAHAN (Opsional/Legacy) ---
-// Jika Frontend butuh data spesifik visitor
-app.get('/api/visitor/latest', async (req, res) => {
-    try {
-        const data = await Visitor.findOne().sort({ timestamp: -1 });
-        res.json(data || {});
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// START SERVER
+// Jalankan Server
 app.listen(PORT, () => {
-    console.log(`🚀 Server Backend berjalan di http://localhost:${PORT}`);
+    console.log(`=============================================`);
+    console.log(`🚀 SERVER BACKEND SIAP DI PORT ${PORT}`);
+    console.log(`📡 Mode: ALL TIME DATA (Database forced: I_MBG)`);
+    console.log(`=============================================`);
 });
