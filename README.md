@@ -11,6 +11,7 @@ Sistem pemantauan cerdas berbasis AI untuk menghitung jumlah pengunjung secara r
 * **Daily Statistics:** Akumulasi jumlah pengunjung harian (reset otomatis setiap hari).
 * **Web Dashboard:** Antarmuka visual untuk memantau trafik pengunjung dari browser.
 * **Fast API Integration:** Komunikasi data realtime antara Python Engine dan Node.js Server.
+* **Staff Accountability Tracker:** Memantau aktivitas di area kerja vital (seperti: Coffee Station). Sistem memvalidasi siapa yang sebenarnya berada di zona tersebut saat pesanan dibuat, **mencegah karyawan saling klaim pekerjaan (mengaku-ngaku)**.
 
 ---
 
