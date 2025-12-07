@@ -17,7 +17,7 @@ Fitur utama: menghitung pengunjung, menilai kinerja pegawai (KPI: jumlah kopi ya
 
 ---
 
-## 🗂️ Struktur Project (Contoh)
+## 🗂️ Struktur Project 
 
 ```
 /project-root
@@ -51,6 +51,7 @@ Fitur utama: menghitung pengunjung, menilai kinerja pegawai (KPI: jumlah kopi ya
 ## 🚀 Cara Menjalankan (Local)
 
 > Pastikan Anda membuka dua terminal atau split terminal: satu untuk `backend`, satu untuk `ai-engine`.
+> cd Imphnen-Lomba
 
 ### 1) Setup Backend
 
