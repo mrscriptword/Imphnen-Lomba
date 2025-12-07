@@ -57,6 +57,8 @@ Fitur utama: menghitung pengunjung, menilai kinerja pegawai (KPI: jumlah kopi ya
 ```bash
 cd backend
 npm install
+npm install multer
+npm install dotenv
 # pastikan file .env ada (lihat contoh di bawah)
 node server.js
 ```
@@ -90,15 +92,12 @@ Letakkan `.env` di folder `backend` dan `ai-engine` (sesuaikan kalau Anda menyim
 
 ```
 # backend/.env (contoh)
-PORT=5000
 MONGO_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/mydatabase?retryWrites=true&w=majority
-JWT_SECRET=isi_rahasia_anda
+PORT=5000
 
 # ai-engine/.env (contoh)
 MONGO_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/mydatabase?retryWrites=true&w=majority
-CAMERA_INDEX=0
-MODEL_PATH=./models/yolov8.pt
-FACE_DB_FOLDER=./data_wajah
+PORT=5000
 ```
 
 > Ganti `<username>`, `<password>`, dan `MODEL_PATH` sesuai konfig Anda.
