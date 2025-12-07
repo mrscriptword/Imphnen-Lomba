@@ -13,421 +13,456 @@ from pymongo import MongoClient
 import queue 
 
 # ==========================================
-# 0. SETUP DATABASE (CORE RENDY - CLOUD ASYNC)
+# 1. KONFIGURASI SENSITIF (ALL-IN-ONE TUNING)
 # ==========================================
-print("⏳ Menghubungkan ke Database Cloud...")
-load_dotenv() 
+load_dotenv()
 
-db_queue = queue.Queue()
+# YOLO Class IDs
+CLASS_ID_PERSON = 0
+CLASS_ID_CUP = 41
+CLASS_ID_PHONE = 67
+TARGET_CLASSES = [CLASS_ID_PERSON, CLASS_ID_CUP, CLASS_ID_PHONE]
 
-def db_worker():
-    """Thread khusus upload data agar video tidak lag"""
+# Koordinat Zona (Sesuaikan dengan Kamera)
+ZONE_COFFEE_MAKER = [100, 100, 400, 400] 
+DOOR_LINE_X_POSITION = 300
+DOOR_LINE_TOLERANCE = 30 
+
+# --- TUNING LEVEL: SANGAT PEKA ---
+YOLO_CONFIDENCE = 0.35              # Rendah: Agar objek kecil/gelap terlihat
+FACE_REC_TOLERANCE = 0.6            # Tinggi: Agar wajah miring/buram tetap dikenali sbg Pegawai
+VERIFICATION_GRACE_PERIOD = 10      # Cepat: Cuma butuh 0.5 detik untuk verifikasi identitas
+INTERVAL_FACE_RECOGNITION = 3       # Sering: Cek wajah setiap 3 frame
+INTERVAL_UPLOAD_STATS_SEC = 5
+
+# Waktu (Detik) - DIPERCEPAT
+THRESHOLD_PHONE_USAGE_SEC = 3       # 3 Detik main HP langsung warning
+THRESHOLD_COFFEE_BREW_SEC = 4       # 4 Detik di zona kopi dianggap kerja
+COOLDOWN_BETWEEN_CUPS_SEC = 10      
+
+# Tampilan
+FONT_STYLE = cv2.FONT_HERSHEY_SIMPLEX
+COLOR_RED = (0, 0, 255)
+COLOR_GREEN = (0, 255, 0)
+COLOR_YELLOW = (0, 255, 255)
+COLOR_ORANGE = (0, 165, 255)
+
+# ==========================================
+# 2. DATABASE WORKER
+# ==========================================
+db_task_queue = queue.Queue()
+
+def database_worker_thread():
     try:
         mongo_uri = os.getenv("MONGO_URI")
-        # SSL Bypass untuk Windows/Jaringan Kantor
-        client = MongoClient(mongo_uri, 
-                             tls=True, 
-                             tlsAllowInvalidCertificates=True,
-                             serverSelectionTimeoutMS=5000)
-        
-        db = client["I_MBG"]
-        col_employees = db["employee_performance"]
-        col_logs = db["system_logs"]
-        col_visitors = db["visitor_logs"]
-        
-        client.admin.command('ping')
-        print("✅ Database Worker Connected (Background)")
-        
+        client = MongoClient(mongo_uri, tls=True, tlsAllowInvalidCertificates=True, serverSelectionTimeoutMS=5000)
+        db_instance = client["I_MBG"]
+        col_employees = db_instance["employee_performance"]
+        col_system_logs = db_instance["system_logs"]
+        col_visitor_logs = db_instance["visitor_logs"]
+        print("✅ [DB] Database Connected Successfully")
     except Exception as e:
-        print(f"❌ Database Error: {e}")
+        print(f"❌ [DB] Connection Error: {e}")
         return
 
     while True:
         try:
-            task = db_queue.get()
+            task = db_task_queue.get()
             if task is None: break 
+            action_type, payload = task
             
-            action, data = task
-            if action == "log":
-                col_logs.insert_one(data)
-                print(f"☁️ Upload Log: {data['event']}")
-            elif action == "update_emp":
-                col_employees.update_one(
-                    {"name": data['name']},
-                    {"$inc": {"cups": data['cups_added']}, "$set": {"last_seen": data['ts'], "status": data['status']}},
-                    upsert=True
-                )
-            elif action == "visitor_stats":
-                col_visitors.insert_one(data)
-            
-            db_queue.task_done()
+            if action_type == "log_event":
+                col_system_logs.insert_one(payload)
+                print(f"☁️ [LOG] {payload['event']}") 
+            elif action_type == "update_employee":
+                col_employees.update_one({"name": payload['name']},
+                    {"$inc": {"cups": payload['cups_added']}, "$set": {"last_seen": payload['ts'], "status": payload['status']}},
+                    upsert=True)
+            elif action_type == "visitor_stats":
+                col_visitor_logs.insert_one(payload)
+            db_task_queue.task_done()
         except Exception as e:
-            print(f"⚠️ Gagal Upload: {e}")
+            print(f"⚠️ [DB] Upload Failed: {e}")
 
-threading.Thread(target=db_worker, daemon=True).start()
+threading.Thread(target=database_worker_thread, daemon=True).start()
 
-# Helper Functions Database
-def log_event(event, detail):
-    db_queue.put(("log", {"timestamp": datetime.now(), "event": event, "detail": detail}))
+def queue_log_event(event_name, detail_text):
+    db_task_queue.put(("log_event", {"timestamp": datetime.now(), "event": event_name, "detail": detail_text}))
 
-def update_employee_db(name, cups_added=0, status="Active"):
-    db_queue.put(("update_emp", {"name": name, "cups_added": cups_added, "ts": datetime.now(), "status": status}))
+def queue_employee_update(name, cups=0, status="Active"):
+    db_task_queue.put(("update_employee", {"name": name, "cups_added": cups, "ts": datetime.now(), "status": status}))
 
-def send_visitor_stats(total_in, current_occupancy):
-    db_queue.put(("visitor_stats", {
-        "timestamp": datetime.now(), "camera_id": "CAM_MAIN",
-        "total_in": total_in, "total_out": 0, "current_occupancy": current_occupancy
-    }))
+def queue_visitor_stats(total_in, current_occupancy):
+    db_task_queue.put(("visitor_stats", {"timestamp": datetime.now(), "camera_id": "CAM_MAIN", "total_in": total_in, "total_out": 0, "current_occupancy": current_occupancy}))
 
 # ==========================================
-# 1. SETUP ENGINE
+# 3. AI ENGINE SETUP
 # ==========================================
-def speak(text):
-    def run():
+def text_to_speech(text):
+    def run_speech():
         try:
-            eng = pyttsx3.init()
-            eng.setProperty('rate', 150)
-            eng.say(text)
-            eng.runAndWait()
+            engine = pyttsx3.init()
+            engine.setProperty('rate', 150)
+            engine.say(text)
+            engine.runAndWait()
         except: pass
-    threading.Thread(target=run).start()
+    threading.Thread(target=run_speech).start()
 
-print("⏳ Mempelajari wajah pegawai...")
-path_folder_wajah = "data_wajah"
+print("⏳ Loading Face Data...")
 known_face_encodings = []
 known_face_names = []
-employee_stats = {} 
+employee_daily_score = {} 
+PATH_FACE_DATA = "data_wajah"
 
-if not os.path.exists(path_folder_wajah): os.makedirs(path_folder_wajah)
+if not os.path.exists(PATH_FACE_DATA): os.makedirs(PATH_FACE_DATA)
 
-for filename in os.listdir(path_folder_wajah):
+for filename in os.listdir(PATH_FACE_DATA):
     if filename.endswith(('.jpg', '.png', '.jpeg')):
         try:
-            image_path = os.path.join(path_folder_wajah, filename)
-            person_image = face_recognition.load_image_file(image_path)
-            encoding = face_recognition.face_encodings(person_image)[0]
-            known_face_encodings.append(encoding)
+            image_path = os.path.join(PATH_FACE_DATA, filename)
+            loaded_image = face_recognition.load_image_file(image_path)
+            encoding = face_recognition.face_encodings(loaded_image)[0]
             name = os.path.splitext(filename)[0].upper()
+            known_face_encodings.append(encoding)
             known_face_names.append(name)
-            employee_stats[name] = 0
-            print(f"👤 Pegawai Loaded: {name}")
+            employee_daily_score[name] = 0
+            print(f"   👤 Loaded: {name}")
         except: pass
 
 print("⏳ Loading YOLOv8...")
 model = YOLO('yolov8n.pt') 
-TARGET_CLASSES = [0, 41, 67] 
 
-# --- CONFIG DARI TRACKER.PY (FITUR YANG DI-PORTING) ---
-# ZONA & GARIS
-COFFEE_ZONE = [100, 100, 400, 400] 
-LINE_POSITION = 300  # Posisi Garis Pintu (X)
-OFFSET = 30          # Toleransi Garis
-FONT = cv2.FONT_HERSHEY_SIMPLEX
+# ==========================================
+# 4. LOGIC VARIABLES
+# ==========================================
+visitor_count_total = 0 
+unique_visitor_ids = set()
+visitor_face_memory = []
+tracker_id_to_name = {} 
+tracker_id_to_face_enc = {} 
+track_id_age = {} 
 
-# TIMING (REAL WORLD - SEPERTI TRACKER.PY)
-HP_LIMIT_SECONDS = 5     # 2 Menit (Dulu 5s)
-MIN_PRODUCTION_TIME = 5   # 2 Menit (Dulu 5s)
-COOLDOWN_TIME = 30          # Jeda antar kopi
+phone_usage_timers = {} 
+phone_grace_period = {} 
+phone_violation_reported = set() 
 
-# VARIABEL LOGIKA
-customer_in_count = 0 
-counted_customer_ids = set()
-visitor_encodings = []      # Memory wajah pengunjung (Fitur Tracker)
-track_id_identity = {} 
-track_id_face_enc = {} 
+cup_cooldown_timers = {} 
+cup_in_zone_status = {}
+cup_entry_timestamps = {}
+cup_last_seen_frame = {}
+cup_maker_assignment = {} 
+cup_last_coordinates = {}      
+lost_cups_buffer = [] 
 
-# LOGIKA HP (CORE RENDY - STICKY TIMER)
-phone_timers = {}        
-phone_grace_counter = {} 
-violation_reported = set() 
+frame_counter = 0
+last_stats_upload_time = time.time()
 
-# LOGIKA KOPI
-cup_cooldowns = {} 
-cup_zone_state = {}
-cup_entry_times = {}
-cup_last_seen = {}
-cup_maker_memory = {} 
-GRACE_FRAMES = 15 
-lost_cups_buffer = []       
-cup_last_coords = {}        
-FLICKER_TOLERANCE_SEC = 20.0
-FLICKER_DIST_LIMIT = 70     
+# --- GEOMETRIC HELPERS (REVISI TOTAL: HIGH SENSITIVITY) ---
+def get_overlap_ratio(box_small, box_large):
+    """Menghitung overlap untuk HP/Gelas. Peka jika > 10% area nempel."""
+    xA = max(box_small[0], box_large[0])
+    yA = max(box_small[1], box_large[1])
+    xB = min(box_small[2], box_large[2])
+    yB = min(box_small[3], box_large[3])
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    boxSmallArea = (box_small[2] - box_small[0]) * (box_small[3] - box_small[1])
+    if boxSmallArea == 0: return 0
+    return interArea / float(boxSmallArea)
 
-# Frame Config
-frame_idx = 0
-FACE_REC_INTERVAL = 5 
-last_visitor_sent_time = time.time()
-VISITOR_SEND_INTERVAL = 5 
+def is_face_aligned_with_body(face_box, body_box):
+    """
+    Logika Super Peka: Menggunakan Alignment Titik Tengah.
+    Wajah boleh sedikit di luar kotak badan, asalkan posisinya di 'atas' badan.
+    Ini mengatasi masalah bounding box YOLO yang kadang tidak mencakup kepala full.
+    """
+    fx1, fy1, fx2, fy2 = face_box
+    bx1, by1, bx2, by2 = body_box
+    
+    face_cx = (fx1 + fx2) / 2
+    face_cy = (fy1 + fy2) / 2
+    body_cx = (bx1 + bx2) / 2
+    
+    # Toleransi X: Wajah boleh melenceng kiri/kanan 80px dari tengah badan
+    x_aligned = abs(face_cx - body_cx) < (bx2 - bx1) * 0.8 
+    
+    # Toleransi Y: Wajah harus di area atas badan (atau sedikit floating di atasnya)
+    # Kita ambil 1/3 bagian atas badan sebagai area wajar kepala
+    body_upper_limit = by1 - (by2 - by1) * 0.3 
+    body_chest_line = by1 + (by2 - by1) * 0.5
+    y_aligned = body_upper_limit < face_cy < body_chest_line
+    
+    return x_aligned and y_aligned
 
-# Geometric Helpers
-def is_box_inside(inner_box, outer_box):
-    ix1, iy1, ix2, iy2 = inner_box
-    ox1, oy1, ox2, oy2 = outer_box
-    icx, icy = (ix1+ix2)/2, (iy1+iy2)/2
-    return ox1 < icx < ox2 and oy1 < icy < oy2
-
-def get_closest_person_identity(cup_center, people_list, max_dist=400):
+def get_closest_person(target_center, people_list, max_distance=600): # Jarak diperluas 600px
     if not people_list: return None
     closest_identity = None
     min_dist = float('inf')
-    cx_cup, cy_cup = cup_center
+    tx, ty = target_center
     for person in people_list:
-        cx_person, cy_person = person['center']
-        dist = math.hypot(cx_cup - cx_person, cy_cup - cy_person)
+        px, py = person['center']
+        dist = math.hypot(tx - px, ty - py)
         if dist < min_dist:
             min_dist = dist
             closest_identity = person['identity']
-    if min_dist < max_dist: return closest_identity
+    if min_dist < max_distance: return closest_identity
     return None
 
 # ==========================================
-# MAIN LOOP
+# 5. MAIN EXECUTION LOOP
 # ==========================================
-cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+camera_index = int(os.getenv('CAMERA_INDEX', 0))
+video_capture = cv2.VideoCapture(camera_index)
+video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-print("🚀 Sistem Berjalan... (Tekan 'q' untuk stop)")
-log_event("SYSTEM", "Sistem Online - Hybrid Mode")
+print("🚀 System Online (FULL SENSITIVE MODE).")
+queue_log_event("SYSTEM", "AI Engine Started - Full Sensitive")
 
 while True:
-    ret, frame = cap.read()
-    if not ret: break
-    frame_idx += 1
-    current_time = time.time()
-    h, w, _ = frame.shape
+    is_frame_valid, frame = video_capture.read()
+    if not is_frame_valid: break
+    frame_counter += 1
+    current_timestamp = time.time()
+    height, width, _ = frame.shape
 
-    # --- A. FACE RECOGNITION (OPTIMIZED INTERVAL) ---
-    current_faces = [] 
-    if frame_idx % FACE_REC_INTERVAL == 0:
+    # ----------------------------------------
+    # A. FACE RECOGNITION (TOLERANT MODE)
+    # ----------------------------------------
+    detected_faces_batch = [] 
+    if frame_counter % INTERVAL_FACE_RECOGNITION == 0:
         small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
         rgb_small_frame = np.ascontiguousarray(small_frame[:, :, ::-1])
-        face_locs = face_recognition.face_locations(rgb_small_frame)
-        if len(face_locs) > 0:
-            face_encs = face_recognition.face_encodings(rgb_small_frame, face_locs)
-            for loc, enc in zip(face_locs, face_encs):
-                name = "PENGUNJUNG"
-                if len(known_face_encodings) > 0:
-                    matches = face_recognition.compare_faces(known_face_encodings, enc, tolerance=0.55)
-                    dists = face_recognition.face_distance(known_face_encodings, enc)
-                    if len(dists) > 0:
-                        best_idx = np.argmin(dists)
-                        if matches[best_idx]: name = known_face_names[best_idx]
+        face_locations = face_recognition.face_locations(rgb_small_frame)
+        
+        if len(face_locations) > 0:
+            face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+            for loc, encoding in zip(face_locations, face_encodings):
                 top, right, bottom, left = loc
-                current_faces.append(((top*4, right*4, bottom*4, left*4), name, enc))
+                scaled_loc = (top*4, right*4, bottom*4, left*4)
+                identity_name = "UNKNOWN"
+                
+                # Cek Pegawai dengan Toleransi Tinggi (0.6)
+                if len(known_face_encodings) > 0:
+                    matches = face_recognition.compare_faces(known_face_encodings, encoding, tolerance=FACE_REC_TOLERANCE)
+                    face_distances = face_recognition.face_distance(known_face_encodings, encoding)
+                    if len(face_distances) > 0:
+                        best_match_index = np.argmin(face_distances)
+                        if matches[best_match_index]:
+                            identity_name = known_face_names[best_match_index]
+                
+                detected_faces_batch.append((scaled_loc, identity_name, encoding))
 
-    # --- B. YOLO TRACKING ---
-    results = model.track(frame, classes=TARGET_CLASSES, persist=True, verbose=False, conf=0.5, tracker="bytetrack.yaml")
+    # ----------------------------------------
+    # B. YOLO TRACKING
+    # ----------------------------------------
+    results = model.track(frame, classes=TARGET_CLASSES, persist=True, verbose=False, conf=YOLO_CONFIDENCE, tracker="bytetrack.yaml")
     
-    # VISUALISASI ZONA (GABUNGAN)
-    cv2.rectangle(frame, (COFFEE_ZONE[0], COFFEE_ZONE[1]), (COFFEE_ZONE[2], COFFEE_ZONE[3]), (255, 0, 0), 2)
-    # Garis Pintu (Fitur Tracker.py)
-    cv2.line(frame, (LINE_POSITION, 0), (LINE_POSITION, h), (0, 255, 255), 2)
+    cv2.rectangle(frame, (ZONE_COFFEE_MAKER[0], ZONE_COFFEE_MAKER[1]), (ZONE_COFFEE_MAKER[2], ZONE_COFFEE_MAKER[3]), COLOR_RED, 2)
+    cv2.line(frame, (DOOR_LINE_X_POSITION, 0), (DOOR_LINE_X_POSITION, height), COLOR_YELLOW, 2)
 
-    current_cup_ids = set()
-    current_people_detected = [] 
-    detected_phones = []
+    active_cup_track_ids = set()
+    list_people_on_screen = [] 
+    list_phones_on_screen = []
 
     if results[0].boxes.id is not None:
         boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
-        cls_ids = results[0].boxes.cls.cpu().numpy().astype(int)
-        track_ids = results[0].boxes.id.cpu().numpy().astype(int)
+        class_ids = results[0].boxes.cls.cpu().numpy().astype(int)
+        tracking_ids = results[0].boxes.id.cpu().numpy().astype(int)
 
-        # PASS 1: HP
-        for box, cls_id in zip(boxes, cls_ids):
-            if cls_id == 67: 
-                detected_phones.append(box)
-                x1, y1, x2, y2 = box
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        # 1. Kumpulkan HP
+        for box, cls_id in zip(boxes, class_ids):
+            if cls_id == CLASS_ID_PHONE:
+                list_phones_on_screen.append(box)
+                cv2.rectangle(frame, (box[0], box[1]), (box[2], box[3]), COLOR_RED, 2)
 
-        # PASS 2: ORANG & PENGUNJUNG (HYBRID LOGIC)
-        for box, cls_id, track_id in zip(boxes, cls_ids, track_ids):
-            if cls_id == 0:
+        # 2. Proses Manusia (Identity Matching yang Lebih Pintar)
+        for box, cls_id, track_id in zip(boxes, class_ids, tracking_ids):
+            if cls_id == CLASS_ID_PERSON:
                 x1, y1, x2, y2 = box
-                cx, cy = int((x1+x2)/2), int((y1+y2)/2)
+                center_x, center_y = int((x1+x2)/2), int((y1+y2)/2)
                 
-                # Logic Mapping Wajah
-                if frame_idx % FACE_REC_INTERVAL == 0:
-                    detected_name = None
-                    detected_enc = None
-                    for face_loc, name, enc in current_faces:
-                        if is_box_inside(face_loc, box):
-                            detected_name = name
-                            detected_enc = enc
+                current_age = track_id_age.get(track_id, 0) + 1
+                track_id_age[track_id] = current_age
+
+                # Update Identitas
+                if frame_counter % INTERVAL_FACE_RECOGNITION == 0:
+                    matched_name = None
+                    matched_encoding = None
+                    for face_loc, name, enc in detected_faces_batch:
+                        # GUNAKAN LOGIKA ALIGNMENT BARU
+                        if is_face_aligned_with_body(face_loc, box):
+                            matched_name = name
+                            matched_encoding = enc
                             break
-                    if detected_name: track_id_identity[track_id] = detected_name
-                    if detected_enc is not None: track_id_face_enc[track_id] = detected_enc
+                    
+                    if matched_name and matched_name != "UNKNOWN": 
+                        tracker_id_to_name[track_id] = matched_name
+                    
+                    if matched_encoding is not None: 
+                        tracker_id_to_face_enc[track_id] = matched_encoding
                 
-                identity = track_id_identity.get(track_id, "PENGUNJUNG")
-                current_people_detected.append({'center': (cx, cy), 'identity': identity})
+                # Penetapan Status
+                known_name = tracker_id_to_name.get(track_id)
+                current_identity = "VERIFYING..." 
 
-                # --- 2a. LOGIKA PEGAWAI (HP) ---
-                if identity != "PENGUNJUNG":
+                if known_name:
+                    current_identity = known_name # Fix Pegawai
+                elif current_age > VERIFICATION_GRACE_PERIOD:
+                    current_identity = "PENGUNJUNG"
+                
+                list_people_on_screen.append({'center': (center_x, center_y), 'identity': current_identity, 'box': box})
+
+                # --- FITUR 1: DETEKSI HP (Peka Overlap > 10%) ---
+                if current_identity not in ["PENGUNJUNG", "VERIFYING...", "UNKNOWN"]:
                     is_holding_phone = False
-                    for phone_box in detected_phones:
-                        if is_box_inside(phone_box, box):
+                    for phone_box in list_phones_on_screen:
+                        if get_overlap_ratio(phone_box, box) > 0.1:
                             is_holding_phone = True
                             break
                     
                     if is_holding_phone:
-                        phone_grace_counter[identity] = 0 
-                        if identity not in phone_timers: 
-                            phone_timers[identity] = current_time
+                        phone_grace_period[current_identity] = 0 
+                        if current_identity not in phone_usage_timers:
+                            phone_usage_timers[current_identity] = current_timestamp
                         
-                        duration = current_time - phone_timers[identity]
-                        cv2.putText(frame, f"HP: {int(duration)}s", (x1, y1-30), FONT, 0.8, (0,0,255), 2)
+                        duration = current_timestamp - phone_usage_timers[current_identity]
+                        cv2.putText(frame, f"HP: {int(duration)}s", (x1, y1-30), FONT_STYLE, 0.8, COLOR_RED, 2)
                         
-                        if duration > HP_LIMIT_SECONDS:
-                            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 4)
-                            if identity not in violation_reported:
-                                log_event("VIOLATION", f"{identity} main HP > {HP_LIMIT_SECONDS}s")
-                                update_employee_db(identity, 0, "Idle (Main HP)")
-                                speak(f"{identity}, tolong simpan handphone")
-                                violation_reported.add(identity)
+                        if duration > THRESHOLD_PHONE_USAGE_SEC:
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), COLOR_RED, 4)
+                            if current_identity not in phone_violation_reported:
+                                queue_log_event("VIOLATION", f"{current_identity} bermain HP")
+                                queue_employee_update(current_identity, 0, "Idle (Main HP)")
+                                text_to_speech(f"{current_identity}, tolong simpan handphone")
+                                phone_violation_reported.add(current_identity)
                     else:
-                        if identity in phone_timers:
-                            current_grace = phone_grace_counter.get(identity, 0) + 1
-                            phone_grace_counter[identity] = current_grace
-                            if current_grace < 20: 
-                                cv2.putText(frame, "HP LOST?", (x1, y1-30), FONT, 0.6, (0,255,255), 2)
-                            else:
-                                del phone_timers[identity]
-                                phone_grace_counter[identity] = 0
-                                update_employee_db(identity, 0, "Active")
-                                if identity in violation_reported: violation_reported.remove(identity)
-                
-                # --- 2b. LOGIKA PENGUNJUNG (DARI TRACKER.PY) ---
-                if identity == "PENGUNJUNG":
-                    # Cek Garis Pintu (Line Crossing)
-                    if LINE_POSITION - OFFSET < cx < LINE_POSITION + OFFSET:
-                        if track_id not in counted_customer_ids:
-                            # Cek Re-Identification (Apakah pernah datang?)
-                            current_encoding = track_id_face_enc.get(track_id)
-                            is_returning = False
-                            
-                            # Cek database memory lokal pengunjung
-                            if current_encoding is not None and len(visitor_encodings) > 0:
-                                matches = face_recognition.compare_faces(visitor_encodings, current_encoding, tolerance=0.50)
-                                if True in matches: is_returning = True
-                            
-                            if is_returning:
-                                counted_customer_ids.add(track_id) 
-                                speak("Selamat datang kembali") 
-                            else:
-                                customer_in_count += 1
-                                counted_customer_ids.add(track_id)
-                                if current_encoding is not None: visitor_encodings.append(current_encoding)
-                                log_event("VISITOR", f"Pelanggan Baru (ID: {track_id})")
-                                speak("Ada pelanggan baru")
-                
-                color_name = (0, 255, 0)
-                if identity in phone_timers and (current_time - phone_timers[identity] > HP_LIMIT_SECONDS):
-                    color_name = (0, 0, 255) 
-                cv2.putText(frame, identity, (x1, y1 - 10), FONT, 0.5, color_name, 2)
+                        if current_identity in phone_usage_timers:
+                            grace_counter = phone_grace_period.get(current_identity, 0) + 1
+                            phone_grace_period[current_identity] = grace_counter
+                            if grace_counter > 30: 
+                                del phone_usage_timers[current_identity]
+                                phone_grace_period[current_identity] = 0
+                                queue_employee_update(current_identity, 0, "Active")
+                                if current_identity in phone_violation_reported: 
+                                    phone_violation_reported.remove(current_identity)
 
+                # --- FITUR 2: VISITOR COUNTING ---
+                if current_identity == "PENGUNJUNG":
+                    if (DOOR_LINE_X_POSITION - DOOR_LINE_TOLERANCE < center_x < DOOR_LINE_X_POSITION + DOOR_LINE_TOLERANCE):
+                        if track_id not in unique_visitor_ids:
+                            curr_enc = tracker_id_to_face_enc.get(track_id)
+                            is_returning_visitor = False
+                            if curr_enc is not None and len(visitor_face_memory) > 0:
+                                matches = face_recognition.compare_faces(visitor_face_memory, curr_enc, tolerance=FACE_REC_TOLERANCE)
+                                if True in matches: is_returning_visitor = True
+                            unique_visitor_ids.add(track_id)
+                            if is_returning_visitor: text_to_speech("Selamat datang kembali")
+                            else:
+                                visitor_count_total += 1
+                                if curr_enc is not None: visitor_face_memory.append(curr_enc)
+                                queue_log_event("VISITOR", f"Pelanggan Baru (ID: {track_id})")
+                                text_to_speech("Ada pelanggan baru")
+                
+                box_color = COLOR_GREEN
+                if current_identity == "VERIFYING...": box_color = COLOR_YELLOW
+                elif current_identity == "PENGUNJUNG": box_color = COLOR_ORANGE
+                cv2.putText(frame, current_identity, (x1, y1 - 10), FONT_STYLE, 0.5, box_color, 2)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2)
 
-        # PASS 3: KOPI 
-        for box, cls_id, track_id in zip(boxes, cls_ids, track_ids):
-            if cls_id == 41:
+        # 3. Proses Kopi
+        for box, cls_id, track_id in zip(boxes, class_ids, tracking_ids):
+            if cls_id == CLASS_ID_CUP:
                 x1, y1, x2, y2 = box
                 cx, cy = int((x1+x2)/2), int((y1+y2)/2)
-                in_zone = (COFFEE_ZONE[0] < cx < COFFEE_ZONE[2]) and (COFFEE_ZONE[1] < cy < COFFEE_ZONE[3])
+                is_in_zone = (ZONE_COFFEE_MAKER[0] < cx < ZONE_COFFEE_MAKER[2]) and (ZONE_COFFEE_MAKER[1] < cy < ZONE_COFFEE_MAKER[3])
                 
-                # Restore Logic (Anti-Flicker)
-                if track_id not in cup_entry_times:
+                if track_id not in cup_entry_timestamps:
                     restored = False
-                    valid_buffer = [c for c in lost_cups_buffer if current_time - c['lost_time'] < FLICKER_TOLERANCE_SEC]
+                    valid_buffer = [c for c in lost_cups_buffer if current_timestamp - c['lost_time'] < 20.0]
                     lost_cups_buffer = valid_buffer 
                     for i, lost_cup in enumerate(lost_cups_buffer):
                         dist = math.hypot(cx - lost_cup['x'], cy - lost_cup['y'])
-                        if dist < FLICKER_DIST_LIMIT:
-                            cup_entry_times[track_id] = lost_cup['entry_time']
-                            if lost_cup['maker']: cup_maker_memory[track_id] = lost_cup['maker']
+                        if dist < 100: 
+                            cup_entry_timestamps[track_id] = lost_cup['entry_time']
+                            if lost_cup['maker']: cup_maker_assignment[track_id] = lost_cup['maker']
                             del lost_cups_buffer[i]
                             restored = True
-                            cv2.putText(frame, "RESTORED", (x1, y1-25), FONT, 0.5, (0, 255, 255), 2)
                             break
-                    if not restored: cup_entry_times[track_id] = time.time()
-                
-                current_cup_ids.add(track_id)
-                cup_last_seen[track_id] = frame_idx
-                cup_last_coords[track_id] = (cx, cy)
-                was_in_zone = cup_zone_state.get(track_id, False)
+                    if not restored: cup_entry_timestamps[track_id] = current_timestamp
 
-                if in_zone:
-                    nearby = get_closest_person_identity((cx, cy), current_people_detected)
-                    if nearby and nearby != "PENGUNJUNG":
-                        cup_maker_memory[track_id] = nearby
-                        cv2.putText(frame, f"Maker: {nearby}", (x1, y2+15), FONT, 0.4, (0,255,255), 1)
-                    elapsed = int(current_time - cup_entry_times[track_id])
-                    
-                    # Warna timer berubah jika sudah matang
-                    color_t = (0,255,0) if elapsed > MIN_PRODUCTION_TIME else (200,200,200)
-                    cv2.putText(frame, f"{elapsed}s", (x1, y1-10), FONT, 0.6, color_t, 2)
+                active_cup_track_ids.add(track_id)
+                cup_last_seen_frame[track_id] = frame_counter
+                cup_last_coordinates[track_id] = (cx, cy)
+                was_in_zone = cup_in_zone_status.get(track_id, False)
 
-                elif not in_zone and was_in_zone:
-                    maker = cup_maker_memory.get(track_id)
-                    entry_time = cup_entry_times.get(track_id, current_time)
-                    duration_in_zone = current_time - entry_time
-                    if maker and duration_in_zone > MIN_PRODUCTION_TIME:
-                        last_paid = cup_cooldowns.get(track_id, 0)
-                        if current_time - last_paid > COOLDOWN_TIME:
-                            if maker in employee_stats: employee_stats[maker] += 1 
-                            cup_cooldowns[track_id] = current_time
-                            update_employee_db(maker, 1, "Active")
-                            log_event("PRODUCTION", f"{maker} selesai kopi (Durasi: {int(duration_in_zone)}s)")
-                            speak(f"Poin untuk {maker}")
-                
-                cup_zone_state[track_id] = in_zone
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                if is_in_zone:
+                    nearby_person = get_closest_person((cx, cy), list_people_on_screen)
+                    if nearby_person and nearby_person not in ["PENGUNJUNG", "VERIFYING..."]:
+                        cup_maker_assignment[track_id] = nearby_person
+                        cv2.putText(frame, f"Maker: {nearby_person}", (x1, y2+15), FONT_STYLE, 0.4, COLOR_YELLOW, 1)
+                    elapsed_time = int(current_timestamp - cup_entry_timestamps[track_id])
+                    color_timer = COLOR_GREEN if elapsed_time > THRESHOLD_COFFEE_BREW_SEC else (200,200,200)
+                    cv2.putText(frame, f"{elapsed_time}s", (x1, y1-10), FONT_STYLE, 0.6, color_timer, 2)
 
-    # Cleanup Buffer
-    for tid in list(cup_zone_state.keys()):
-        if tid not in current_cup_ids and cup_zone_state[tid]:
-            if frame_idx - cup_last_seen.get(tid, 0) > GRACE_FRAMES:
-                entry_time = cup_entry_times.get(tid, current_time)
-                duration_in_zone = current_time - entry_time
-                maker_name = cup_maker_memory.get(tid)
-                last_paid = cup_cooldowns.get(tid, 0)
+                elif not is_in_zone and was_in_zone:
+                    maker = cup_maker_assignment.get(track_id)
+                    entry_time = cup_entry_timestamps.get(track_id, current_timestamp)
+                    duration_work = current_timestamp - entry_time
+                    if maker and duration_work > THRESHOLD_COFFEE_BREW_SEC:
+                        last_reward_time = cup_cooldown_timers.get(track_id, 0)
+                        if current_timestamp - last_reward_time > COOLDOWN_BETWEEN_CUPS_SEC:
+                            if maker in employee_daily_score: employee_daily_score[maker] += 1 
+                            cup_cooldown_timers[track_id] = current_timestamp
+                            queue_employee_update(maker, 1, "Active")
+                            queue_log_event("PRODUCTION", f"{maker} selesai kopi")
+                            text_to_speech(f"Poin untuk {maker}")
+                cup_in_zone_status[track_id] = is_in_zone
+                cv2.rectangle(frame, (x1, y1), (x2, y2), COLOR_YELLOW, 2)
+
+    # Cleanup Kopi
+    for tid in list(cup_in_zone_status.keys()):
+        if tid not in active_cup_track_ids and cup_in_zone_status[tid]:
+            if frame_counter - cup_last_seen_frame.get(tid, 0) > 10: 
+                entry_time = cup_entry_timestamps.get(tid, current_timestamp)
+                duration_work = current_timestamp - entry_time
+                maker_name = cup_maker_assignment.get(tid)
+                last_paid = cup_cooldown_timers.get(tid, 0)
                 is_valid = False
-                if maker_name and (current_time - last_paid > COOLDOWN_TIME) and (duration_in_zone > MIN_PRODUCTION_TIME):
-                    if maker_name in employee_stats: employee_stats[maker_name] += 1
-                    cup_cooldowns[tid] = current_time
-                    update_employee_db(maker_name, 1, "Active")
-                    log_event("PRODUCTION", f"Kopi diantar {maker_name} (Durasi: {int(duration_in_zone)}s)") 
-                    speak(f"Kopi selesai, poin {maker_name}")
+                if maker_name and (current_timestamp - last_paid > COOLDOWN_BETWEEN_CUPS_SEC) and (duration_work > THRESHOLD_COFFEE_BREW_SEC):
+                    if maker_name in employee_daily_score: employee_daily_score[maker_name] += 1
+                    cup_cooldown_timers[tid] = current_timestamp
+                    queue_employee_update(maker_name, 1, "Active")
+                    queue_log_event("PRODUCTION", f"Kopi diantar {maker_name}")
+                    text_to_speech(f"Kopi selesai, poin {maker_name}")
                     is_valid = True
-                
-                if not is_valid and duration_in_zone < MIN_PRODUCTION_TIME:
-                    last_pos = cup_last_coords.get(tid)
+                if not is_valid and duration_work < THRESHOLD_COFFEE_BREW_SEC:
+                    last_pos = cup_last_coordinates.get(tid)
                     if last_pos:
-                        lost_cups_buffer.append({'x': last_pos[0], 'y': last_pos[1], 'entry_time': entry_time, 'lost_time': current_time, 'maker': maker_name})
-                cup_entry_times.pop(tid, None)
-                cup_zone_state[tid] = False
-                if tid in cup_maker_memory: del cup_maker_memory[tid]
-                if tid in cup_last_coords: del cup_last_coords[tid]
+                        lost_cups_buffer.append({'x': last_pos[0], 'y': last_pos[1], 'entry_time': entry_time, 'lost_time': current_timestamp, 'maker': maker_name})
+                cup_entry_timestamps.pop(tid, None)
+                cup_in_zone_status[tid] = False
+                if tid in cup_maker_assignment: del cup_maker_assignment[tid]
+                if tid in cup_last_coordinates: del cup_last_coordinates[tid]
 
-    # Kirim Data Pengunjung Berkala (Core Rendy)
-    if current_time - last_visitor_sent_time > VISITOR_SEND_INTERVAL:
-        send_visitor_stats(customer_in_count, len(current_people_detected))
-        last_visitor_sent_time = current_time
+    if current_timestamp - last_stats_upload_time > INTERVAL_UPLOAD_STATS_SEC:
+        queue_visitor_stats(visitor_count_total, len(list_people_on_screen))
+        last_stats_upload_time = current_timestamp
 
-    # Dashboard UI
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (280, 250), (0, 0, 0), -1) 
-    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
-    
-    cv2.putText(frame, f"Visitor: {customer_in_count}", (10, 30), FONT, 0.6, (0, 255, 0), 2)
-    y_pos = 60
-    for name, score in employee_stats.items():
-        color = (0, 255, 255)
-        if name in phone_timers and (current_time - phone_timers[name] > HP_LIMIT_SECONDS): color = (0, 0, 255)
-        cv2.putText(frame, f"{name}: {score}", (10, y_pos), FONT, 0.6, color, 2)
-        y_pos += 25
+    # Overlay
+    ui_overlay = frame.copy()
+    cv2.rectangle(ui_overlay, (0, 0), (280, 250), (0, 0, 0), -1) 
+    cv2.addWeighted(ui_overlay, 0.6, frame, 0.4, 0, frame)
+    cv2.putText(frame, f"Visitor: {visitor_count_total}", (10, 30), FONT_STYLE, 0.6, COLOR_GREEN, 2)
+    y_position = 60
+    for name, score in employee_daily_score.items():
+        score_color = COLOR_YELLOW
+        if name in phone_usage_timers and (current_timestamp - phone_usage_timers[name] > THRESHOLD_PHONE_USAGE_SEC): score_color = COLOR_RED
+        cv2.putText(frame, f"{name}: {score}", (10, y_position), FONT_STYLE, 0.6, score_color, 2)
+        y_position += 25
 
-    cv2.imshow("Smart Cafe Hybrid", frame)
+    cv2.imshow("CCTV Smart Monitor (EMPLOYEE MODE)", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'): break
 
-db_queue.put(None)
-cap.release()
+db_task_queue.put(None)
+video_capture.release()
 cv2.destroyAllWindows()
