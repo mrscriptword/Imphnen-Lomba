@@ -10,11 +10,10 @@ import threading
 from datetime import datetime
 from dotenv import load_dotenv
 from pymongo import MongoClient
-import certifi
 import queue 
 
 # ==========================================
-# 0. SETUP DATABASE (WORKER THREAD)
+# 0. SETUP DATABASE (CORE RENDY - CLOUD ASYNC)
 # ==========================================
 print("⏳ Menghubungkan ke Database Cloud...")
 load_dotenv() 
@@ -67,7 +66,7 @@ def db_worker():
 
 threading.Thread(target=db_worker, daemon=True).start()
 
-# Helper Functions
+# Helper Functions Database
 def log_event(event, detail):
     db_queue.put(("log", {"timestamp": datetime.now(), "event": event, "detail": detail}))
 
@@ -81,7 +80,7 @@ def send_visitor_stats(total_in, current_occupancy):
     }))
 
 # ==========================================
-# 1. SETUP LAINNYA
+# 1. SETUP ENGINE
 # ==========================================
 def speak(text):
     def run():
@@ -118,26 +117,32 @@ print("⏳ Loading YOLOv8...")
 model = YOLO('yolov8n.pt') 
 TARGET_CLASSES = [0, 41, 67] 
 
-# ZONA & VISUAL
+# --- CONFIG DARI TRACKER.PY (FITUR YANG DI-PORTING) ---
+# ZONA & GARIS
 COFFEE_ZONE = [100, 100, 400, 400] 
+LINE_POSITION = 300  # Posisi Garis Pintu (X)
+OFFSET = 30          # Toleransi Garis
 FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+# TIMING (REAL WORLD - SEPERTI TRACKER.PY)
+HP_LIMIT_SECONDS = 5     # 2 Menit (Dulu 5s)
+MIN_PRODUCTION_TIME = 5   # 2 Menit (Dulu 5s)
+COOLDOWN_TIME = 30          # Jeda antar kopi
 
 # VARIABEL LOGIKA
 customer_in_count = 0 
 counted_customer_ids = set()
-visitor_encodings = [] 
+visitor_encodings = []      # Memory wajah pengunjung (Fitur Tracker)
 track_id_identity = {} 
 track_id_face_enc = {} 
 
-# --- KONFIGURASI TIMER (MODE TESTING) ---
+# LOGIKA HP (CORE RENDY - STICKY TIMER)
 phone_timers = {}        
 phone_grace_counter = {} 
 violation_reported = set() 
-HP_LIMIT_SECONDS = 5     
 
+# LOGIKA KOPI
 cup_cooldowns = {} 
-COOLDOWN_TIME = 10 
-MIN_PRODUCTION_TIME = 5  # 5 Detik untuk test kopi
 cup_zone_state = {}
 cup_entry_times = {}
 cup_last_seen = {}
@@ -183,7 +188,7 @@ cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 print("🚀 Sistem Berjalan... (Tekan 'q' untuk stop)")
-log_event("SYSTEM", "Sistem Online - Mode Produksi Fix")
+log_event("SYSTEM", "Sistem Online - Hybrid Mode")
 
 while True:
     ret, frame = cap.read()
@@ -192,7 +197,7 @@ while True:
     current_time = time.time()
     h, w, _ = frame.shape
 
-    # --- A. FACE RECOGNITION ---
+    # --- A. FACE RECOGNITION (OPTIMIZED INTERVAL) ---
     current_faces = [] 
     if frame_idx % FACE_REC_INTERVAL == 0:
         small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
@@ -214,8 +219,10 @@ while True:
     # --- B. YOLO TRACKING ---
     results = model.track(frame, classes=TARGET_CLASSES, persist=True, verbose=False, conf=0.5, tracker="bytetrack.yaml")
     
-    # Area Kopi
+    # VISUALISASI ZONA (GABUNGAN)
     cv2.rectangle(frame, (COFFEE_ZONE[0], COFFEE_ZONE[1]), (COFFEE_ZONE[2], COFFEE_ZONE[3]), (255, 0, 0), 2)
+    # Garis Pintu (Fitur Tracker.py)
+    cv2.line(frame, (LINE_POSITION, 0), (LINE_POSITION, h), (0, 255, 255), 2)
 
     current_cup_ids = set()
     current_people_detected = [] 
@@ -232,9 +239,8 @@ while True:
                 detected_phones.append(box)
                 x1, y1, x2, y2 = box
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                cv2.putText(frame, "HP", (x1, y1-5), FONT, 0.5, (0,0,255), 1)
 
-        # PASS 2: ORANG & VIOLATION (STICKY TIMER)
+        # PASS 2: ORANG & PENGUNJUNG (HYBRID LOGIC)
         for box, cls_id, track_id in zip(boxes, cls_ids, track_ids):
             if cls_id == 0:
                 x1, y1, x2, y2 = box
@@ -255,7 +261,7 @@ while True:
                 identity = track_id_identity.get(track_id, "PENGUNJUNG")
                 current_people_detected.append({'center': (cx, cy), 'identity': identity})
 
-                # --- LOGIKA HP ROBUST ---
+                # --- 2a. LOGIKA PEGAWAI (HP) ---
                 if identity != "PENGUNJUNG":
                     is_holding_phone = False
                     for phone_box in detected_phones:
@@ -267,11 +273,8 @@ while True:
                         phone_grace_counter[identity] = 0 
                         if identity not in phone_timers: 
                             phone_timers[identity] = current_time
-                            print(f"📱 {identity} mulai pegang HP...")
                         
                         duration = current_time - phone_timers[identity]
-                        
-                        print(f"⚠️ {identity} HP: {int(duration)}s / {HP_LIMIT_SECONDS}s", end='\r')
                         cv2.putText(frame, f"HP: {int(duration)}s", (x1, y1-30), FONT, 0.8, (0,0,255), 2)
                         
                         if duration > HP_LIMIT_SECONDS:
@@ -280,7 +283,6 @@ while True:
                                 log_event("VIOLATION", f"{identity} main HP > {HP_LIMIT_SECONDS}s")
                                 update_employee_db(identity, 0, "Idle (Main HP)")
                                 speak(f"{identity}, tolong simpan handphone")
-                                print(f"\n🚨 [SENT] PELANGGARAN: {identity} KE DB!")
                                 violation_reported.add(identity)
                     else:
                         if identity in phone_timers:
@@ -293,27 +295,45 @@ while True:
                                 phone_grace_counter[identity] = 0
                                 update_employee_db(identity, 0, "Active")
                                 if identity in violation_reported: violation_reported.remove(identity)
-                                print(f"\n✅ {identity} benar-benar menyimpan HP.")
+                
+                # --- 2b. LOGIKA PENGUNJUNG (DARI TRACKER.PY) ---
+                if identity == "PENGUNJUNG":
+                    # Cek Garis Pintu (Line Crossing)
+                    if LINE_POSITION - OFFSET < cx < LINE_POSITION + OFFSET:
+                        if track_id not in counted_customer_ids:
+                            # Cek Re-Identification (Apakah pernah datang?)
+                            current_encoding = track_id_face_enc.get(track_id)
+                            is_returning = False
+                            
+                            # Cek database memory lokal pengunjung
+                            if current_encoding is not None and len(visitor_encodings) > 0:
+                                matches = face_recognition.compare_faces(visitor_encodings, current_encoding, tolerance=0.50)
+                                if True in matches: is_returning = True
+                            
+                            if is_returning:
+                                counted_customer_ids.add(track_id) 
+                                speak("Selamat datang kembali") 
+                            else:
+                                customer_in_count += 1
+                                counted_customer_ids.add(track_id)
+                                if current_encoding is not None: visitor_encodings.append(current_encoding)
+                                log_event("VISITOR", f"Pelanggan Baru (ID: {track_id})")
+                                speak("Ada pelanggan baru")
                 
                 color_name = (0, 255, 0)
                 if identity in phone_timers and (current_time - phone_timers[identity] > HP_LIMIT_SECONDS):
                     color_name = (0, 0, 255) 
                 cv2.putText(frame, identity, (x1, y1 - 10), FONT, 0.5, color_name, 2)
 
-                # Visitor Logic
-                if identity == "PENGUNJUNG":
-                    if track_id not in counted_customer_ids:
-                        customer_in_count += 1
-                        counted_customer_ids.add(track_id)
-                        log_event("VISITOR", f"Pelanggan Baru (ID: {track_id})")
 
-        # PASS 3: KOPI (FIX FORMAT STRING UNTUK BACKEND)
+        # PASS 3: KOPI 
         for box, cls_id, track_id in zip(boxes, cls_ids, track_ids):
             if cls_id == 41:
                 x1, y1, x2, y2 = box
                 cx, cy = int((x1+x2)/2), int((y1+y2)/2)
                 in_zone = (COFFEE_ZONE[0] < cx < COFFEE_ZONE[2]) and (COFFEE_ZONE[1] < cy < COFFEE_ZONE[3])
                 
+                # Restore Logic (Anti-Flicker)
                 if track_id not in cup_entry_times:
                     restored = False
                     valid_buffer = [c for c in lost_cups_buffer if current_time - c['lost_time'] < FLICKER_TOLERANCE_SEC]
@@ -340,7 +360,10 @@ while True:
                         cup_maker_memory[track_id] = nearby
                         cv2.putText(frame, f"Maker: {nearby}", (x1, y2+15), FONT, 0.4, (0,255,255), 1)
                     elapsed = int(current_time - cup_entry_times[track_id])
-                    cv2.putText(frame, f"{elapsed}s", (x1, y1-10), FONT, 0.6, (0,255,0), 2)
+                    
+                    # Warna timer berubah jika sudah matang
+                    color_t = (0,255,0) if elapsed > MIN_PRODUCTION_TIME else (200,200,200)
+                    cv2.putText(frame, f"{elapsed}s", (x1, y1-10), FONT, 0.6, color_t, 2)
 
                 elif not in_zone and was_in_zone:
                     maker = cup_maker_memory.get(track_id)
@@ -352,16 +375,13 @@ while True:
                             if maker in employee_stats: employee_stats[maker] += 1 
                             cup_cooldowns[track_id] = current_time
                             update_employee_db(maker, 1, "Active")
-                            
-                            # [PERBAIKAN UTAMA DISINI] Tambahkan kata 'Durasi: '
                             log_event("PRODUCTION", f"{maker} selesai kopi (Durasi: {int(duration_in_zone)}s)")
-                            
                             speak(f"Poin untuk {maker}")
                 
                 cup_zone_state[track_id] = in_zone
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
-    # Cleanup Buffer (Juga diperbaiki)
+    # Cleanup Buffer
     for tid in list(cup_zone_state.keys()):
         if tid not in current_cup_ids and cup_zone_state[tid]:
             if frame_idx - cup_last_seen.get(tid, 0) > GRACE_FRAMES:
@@ -374,10 +394,7 @@ while True:
                     if maker_name in employee_stats: employee_stats[maker_name] += 1
                     cup_cooldowns[tid] = current_time
                     update_employee_db(maker_name, 1, "Active")
-                    
-                    # [PERBAIKAN UTAMA DISINI JUGA]
                     log_event("PRODUCTION", f"Kopi diantar {maker_name} (Durasi: {int(duration_in_zone)}s)") 
-                    
                     speak(f"Kopi selesai, poin {maker_name}")
                     is_valid = True
                 
@@ -390,10 +407,12 @@ while True:
                 if tid in cup_maker_memory: del cup_maker_memory[tid]
                 if tid in cup_last_coords: del cup_last_coords[tid]
 
+    # Kirim Data Pengunjung Berkala (Core Rendy)
     if current_time - last_visitor_sent_time > VISITOR_SEND_INTERVAL:
         send_visitor_stats(customer_in_count, len(current_people_detected))
         last_visitor_sent_time = current_time
 
+    # Dashboard UI
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (280, 250), (0, 0, 0), -1) 
     cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
@@ -406,7 +425,7 @@ while True:
         cv2.putText(frame, f"{name}: {score}", (10, y_pos), FONT, 0.6, color, 2)
         y_pos += 25
 
-    cv2.imshow("Smart Cafe Optimized", frame)
+    cv2.imshow("Smart Cafe Hybrid", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'): break
 
 db_queue.put(None)
