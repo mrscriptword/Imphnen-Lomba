@@ -112,12 +112,6 @@ PORT=5000
 
 ---
 
-## ⚙️ Konfigurasi Zona & Threshold
-
-* Lokasi zona (mis. area mesin kopi) dikonfig di `ai-engine` (biasanya berupa koordinat bounding box atau persentase frame).
-* Threshold durasi (mis. 3 detik untuk HP, 4 detik untuk pembuatan kopi) dikonfig di `config.py` atau file konfigurasi sejenis di `ai-engine`.
-
-
 ## 🔍 Troubleshooting Umum
 
 **1. Gagal install `dlib` pada Windows**
