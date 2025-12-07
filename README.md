@@ -1,121 +1,122 @@
-# 👁️ CCTV Smart Monitor & Visitor Counter
+# 👁️ Smart Cafe Monitor: Employee Performance & Visitor Counter
 
-Sistem pemantauan cerdas berbasis AI untuk menditeksi aktivitas pegawai dan menghitung jumlah pengunjung. Proyek ini menggabungkan **Computer Vision (Python)** untuk deteksi, **Backend API (Express.js)** untuk manajemen data, dan **Frontend Dashboard** untuk visualisasi statistik. Proyek ini akan menditeksi berapa banyak kopi yang telah dibuat dalam sehari berdasarkan nama pegawai selain itu menditeksi pelanggaran pegawai seperti bermain hp. 
+Sistem pemantauan cerdas berbasis AI yang terintegrasi (End-to-End). Proyek ini menggabungkan **Computer Vision (Python)** untuk analisis CCTV, **Backend API (Express.js)** untuk manajemen data real-time, dan **Frontend Dashboard** untuk visualisasi statistik.
+
+Sistem ini tidak hanya menghitung pengunjung, tetapi juga **menilai kinerja pegawai** (jumlah kopi yang dibuat) dan **mendeteksi pelanggaran SOP** (seperti bermain HP saat jam kerja).
 
 ---
 
-## ✨ Fitur Utama
+## ✨ Fitur Unggulan
 
-* **Real-time Human Detection:** Menggunakan model AI YOLOv8 untuk mendeteksi manusia secara akurat.
-* **Live Visitor Counter:** Menghitung jumlah orang yang tertangkap kamera saat ini (Live Count).
-* **Daily Statistics:** Akumulasi jumlah pengunjung harian (reset otomatis setiap hari).
-* **Web Dashboard:** Antarmuka visual untuk memantau trafik pengunjung dari browser.
-* **Fast API Integration:** Komunikasi data realtime antara Python Engine dan Node.js Server.
-* **Staff Accountability Tracker:** Memantau aktivitas di area kerja vital (seperti: Coffee Station). Sistem memvalidasi siapa yang sebenarnya berada di zona tersebut saat pesanan dibuat, **mencegah karyawan saling klaim pekerjaan (mengaku-ngaku)**.
+### 1. 🤖 AI Surveillance & Analytics
+* **Real-time Human Detection:** Menggunakan **YOLOv8** dan **ByteTrack** untuk pelacakan objek yang presisi.
+* **Live Visitor Counter:** Menghitung pengunjung unik yang masuk dan memberikan sapaan suara (TTS) otomatis.
+* **Face Recognition dengan "Hot Reload":** Mengenali wajah pegawai. Jika ada pegawai baru mendaftar foto via web, AI **otomatis memperbarui database wajah** tanpa perlu restart program.
+
+### 2. ☕ Employee Performance Tracker (KPI)
+* **Smart Coffee Tracking:** Menghitung berapa gelas kopi yang dibuat oleh spesifik pegawai.
+* **Anti-Claim System:** Mencegah klaim palsu. Sistem memvalidasi durasi dan keberadaan pegawai di zona mesin kopi sebelum memberikan poin.
+* **Leaderboard:** Menampilkan peringkat pegawai paling rajin secara real-time.
+
+### 3. 📵 Violation Detection (SOP)
+* **Phone Usage Detection:** AI mendeteksi jika pegawai bermain HP.
+* **Alert System:** Jika penggunaan HP melebihi batas waktu (misal: 3 detik), sistem mencatat pelanggaran ke database dan memberikan peringatan suara.
+
+### 4. 📸 Live Attendance System
+* **Webcam Registration:** Pegawai melakukan absensi dan pendaftaran wajah langsung melalui browser (Laptop/HP).
+* **Seamless Integration:** Foto yang diambil di web langsung dikirim ke AI Engine untuk dipelajari detik itu juga.
 
 ---
 
 ## 🗂️ Struktur Project
 
-```
+```text
 /project-root
-  ├── /backend        # REST API & Business Logic (Node.js + Express)
-  ├── /frontend       # Dashboard Interface (Node.js + HTML/EJS/React)
-  └── /ai-engine      # Computer Vision Script (Python + YOLO)
-```
+  ├── /backend                # Server (Express.js) & API
+  │     ├── server.js         # Entry point server
+  │     └── /Models           # Schema Database MongoDB
+  │
+  ├── /frontend               # Antarmuka Pengguna
+  │     └── /public           # File statis (HTML, CSS, JS)
+  │           ├── index.html  # Dashboard Utama
+  │           └── absensi.html# Halaman Absensi Live Camera
+  │
+  └── /ai-engine              # Computer Vision (Python)
+        ├── main.py           # Logika Utama (Looping & Deteksi)
+        ├── helpers.py        # Helper (Database, Math, Face Loader)
+        └── /data_wajah       # Folder penyimpanan foto wajah (Auto-generated)
+🛠️ Persyaratan Sistem
+Node.js (v16 ke atas)
 
----
+Python (v3.10 atau v3.11)
 
-## 🛠️ Persyaratan Sistem
+MongoDB Atlas (Cloud Database)
 
-* **Node.js** minimal versi 16
-* **Python** minimal versi 3.10
-* **Webcam** (internal atau USB)
+Webcam (Internal Laptop atau USB Webcam)
 
----
+Visual Studio Code (Recommended Editor)
 
-# 🚀 Cara Menjalankan Project
+🚀 Cara Menjalankan Project
+Tips: Gunakan fitur "Split Terminal" di VS Code untuk menjalankan Backend dan AI secara bersamaan.
 
-> **Penting:** Buka **3 terminal** berbeda untuk setiap service.
+Langkah 1: Jalankan Backend Server
+Backend berfungsi sebagai pusat data dan server file statis untuk frontend.
 
----
+Bash
 
-## 1️⃣ Backend (Server API)
-
-Jembatan komunikasi data Python → Node.js.
-
-```bash
 cd backend
 npm install
 node server.js
-```
+✅ Indikator Sukses: Terminal menampilkan: 🚀 SERVER BACKEND SIAP DI PORT 5000
 
-Output normal: `Server running on port 5000`
+Langkah 2: Akses Frontend (Web)
+Setelah backend berjalan, buka browser (Chrome/Edge) dan akses URL berikut:
 
----
+Dashboard Statistik: http://localhost:5000
 
-## 2️⃣ Frontend (Dashboard UI)
+Halaman Absensi (Daftar Wajah): http://localhost:5000/absensi.html
 
-Antarmuka visual untuk memantau statistik.
+Catatan: Pastikan memberi izin akses kamera saat membuka halaman absensi.
 
-```bash
-cd frontend
-npm install
-node app.js
-```
+Langkah 3: Jalankan AI Engine (Python)
+AI akan menyalakan kamera CCTV/Webcam untuk mulai memantau.
 
-Akses melalui browser:
-👉 `http://localhost:3000`
+Persiapan (Install Library):
 
----
+Bash
 
-## 3️⃣ AI Engine (Python Detector)
-
-Melakukan deteksi manusia dari kamera.
-
-### Install dependency (sekali saja):
-
-```bash
 cd ai-engine
-pip install cmake
 pip install -r requirements.txt
-```
+Pastikan library cmake dan dlib terinstall dengan benar. Jika gagal install dlib, pastikan "Desktop Development with C++" sudah terinstall di Visual Studio Installer.
 
-### Jalankan AI Engine:
+Menjalankan AI:
 
-```bash
-python main-detector.py
-```
+Bash
 
-Jika berhasil berjalan, akan muncul jendela kamera.
-pada proses pertama kali akan muncul folder baru bernama data wajah pada folder ai-engine ini berfungsi untuk memasukan data pegawai
-untuk menambahkan pegawai cukup tambahkan satu foto dengan nama file 
-nama.jpg
-contoh 
-Rendy.jpg
----
+python main.py
+✅ Indikator Sukses: Jendela kamera "CCTV AI (Modular)" akan muncul.
 
-## 📝 Konfigurasi `.env`
+📝 Konfigurasi Database (.env)
+Pastikan file .env ada di folder backend dan ai-engine.
 
-### File: `backend/.env`
+Isi file .env (Contoh):
 
-```
+Cuplikan kode
+
 PORT=5000
+# Ganti dengan Connection String MongoDB milik Anda sendiri jika perlu
 MONGO_URI=mongodb+srv://rendydatabase:anjayfree@cluster0.uavcqiz.mongodb.net/?appName=Cluster0
-```
-bisa gunakan contoh diatas untuk melakukan uji coba pada konfigurasi database
-### File: `ai-engine/.env`
+CAMERA_INDEX=0
+CAMERA_INDEX=0 biasanya untuk webcam laptop. Ubah ke 1 jika menggunakan webcam eksternal USB.
 
-```
-PORT=5000
-MONGO_URI=mongodb+srv://rendydatabase:anjayfree@cluster0.uavcqiz.mongodb.net/?appName=Cluster0
-```
+🧪 Skenario Pengujian
+Absensi: Buka http://localhost:5000/absensi.html, masukkan nama, dan ambil foto. Lihat terminal Python, AI akan mendeteksi "Perubahan data wajah" dan melakukan reload otomatis.
 
----
+Deteksi Kopi: Bawa gelas ke area yang ditentukan (zona merah di layar), tahan selama 4-5 detik. Poin pegawai akan bertambah.
 
-## 📄 Lisensi
+Pelanggaran HP: Pegang HP dan mainkan di depan kamera. AI akan mendeteksi objek "Cell Phone" dan memberikan peringatan jika terlalu lama.
 
-Proyek ini dibuat untuk kepentingan edukasi & research.
+🤝 Kontribusi & Lisensi
+Proyek ini dibuat untuk kepentingan Kompetisi Inovasi AI & Riset Edukasi. Dilarang keras menyalin kode untuk tujuan komersial tanpa izin.
 
-## 🤝 Kontribusi
-
+Dibuat dengan ❤️ dan Kopi ☕
