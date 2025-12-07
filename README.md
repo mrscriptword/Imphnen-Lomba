@@ -1,6 +1,6 @@
 # 👁️ CCTV Smart Monitor & Visitor Counter
 
-Sistem pemantauan cerdas berbasis AI untuk menghitung jumlah pengunjung secara real-time. Proyek ini menggabungkan **Computer Vision (Python)** untuk deteksi, **Backend API (Express.js)** untuk manajemen data, dan **Frontend Dashboard** untuk visualisasi statistik.
+Sistem pemantauan cerdas berbasis AI untuk menditeksi aktivitas pegawai dan menghitung jumlah pengunjung. Proyek ini menggabungkan **Computer Vision (Python)** untuk deteksi, **Backend API (Express.js)** untuk manajemen data, dan **Frontend Dashboard** untuk visualisasi statistik. Proyek ini akan menditeksi berapa banyak kopi yang telah dibuat dalam sehari berdasarkan nama pegawai selain itu menditeksi pelanggaran pegawai seperti bermain hp. 
 
 ---
 
@@ -87,7 +87,11 @@ python main-detector.py
 ```
 
 Jika berhasil berjalan, akan muncul jendela kamera.
-
+pada proses pertama kali akan muncul folder baru bernama data wajah pada folder ai-engine ini berfungsi untuk memasukan data pegawai
+untuk menambahkan pegawai cukup tambahkan satu foto dengan nama file 
+nama.jpg
+contoh 
+Rendy.jpg
 ---
 
 ## 📝 Konfigurasi `.env`
@@ -96,43 +100,15 @@ Jika berhasil berjalan, akan muncul jendela kamera.
 
 ```
 PORT=5000
-# MONGO_URI=mongodb://localhost:27017/cctv_db
+MONGO_URI=mongodb+srv://rendydatabase:anjayfree@cluster0.uavcqiz.mongodb.net/?appName=Cluster0
 ```
-
+bisa gunakan contoh diatas untuk melakukan uji coba pada konfigurasi database
 ### File: `ai-engine/.env`
 
 ```
-API_URL=http://localhost:5000/api/update-visitor
-CAMERA_INDEX=0
+PORT=5000
+MONGO_URI=mongodb+srv://rendydatabase:anjayfree@cluster0.uavcqiz.mongodb.net/?appName=Cluster0
 ```
-
----
-
-## ⚠️ Troubleshooting
-
-### ❌ Kamera tidak bisa dibuka (`Error -2147024865`)
-
-Solusi:
-
-1. Tutup Zoom/Meet/Discord/OBS.
-2. Ubah code:
-
-   ```python
-   cv2.VideoCapture(0)
-   ```
-
-   menjadi:
-
-   ```python
-   cv2.VideoCapture(0, cv2.CAP_DSHOW)
-   ```
-
----
-
-### ❌ Data tidak tampil di Frontend
-
-1. Cek terminal backend — apakah ada data masuk?
-2. Pastikan URL API di `.env` Python sesuai port backend.
 
 ---
 
@@ -142,10 +118,3 @@ Proyek ini dibuat untuk kepentingan edukasi & research.
 
 ## 🤝 Kontribusi
 
-Silakan fork project ini dan buat PR untuk fitur tambahan seperti:
-
-* Deteksi masker
-* Demografi (gender, usia)
-* Multi-camera support
-
----
