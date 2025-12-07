@@ -77,7 +77,8 @@ Melakukan deteksi manusia dari kamera.
 
 ```bash
 cd ai-engine
-pip install opencv-python ultralytics requests python-dotenv numpy
+pip install cmake
+pip install -r requirements.txt
 ```
 
 ### Jalankan AI Engine:
