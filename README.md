@@ -151,29 +151,4 @@ PORT=5000
 
 ---
 
-## 🔐 Keamanan & Privasi
-
-* Simpan connection string MongoDB dengan aman (jangan commit `.env` ke repo publik).
-* Hindari menyimpan foto pegawai pada repositori — gunakan storage terpisah (bucket, storage server) atau enkripsi.
-* Berikan informasi legal terkait privasi kepada pegawai jika sistem digunakan di lingkungan produksi.
-
----
-
-## 🤝 Kontribusi
-
-* Buat branch baru untuk fitur/bugfix: `git checkout -b feat/nama-fitur`
-* Buka pull request (PR) dengan deskripsi perubahan dan screenshot/log bila perlu.
-* Sertakan unit test atau instruksi manual testing untuk fitur utama.
-
----
-
-## 📄 Lisensi
-
-Proyek ini dibuat untuk Kompetisi Inovasi AI & Riset Edukasi. Tidak diperbolehkan penggunaan komersial tanpa izin. (Tambahkan `LICENSE` bila ingin lisensi yang eksplisit, mis: MIT atau CC-BY-NC).
-
----
-
-## Catatan Penutup
-
-
-Terima kasih — dibuat dengan ❤️ dan kopi ☕
+Terima kasih — dibuat dengan rasa syukur  dan segelas kopi ☕
