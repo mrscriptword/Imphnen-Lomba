@@ -78,6 +78,7 @@ Pastikan browser diberi izin kamera saat membuka halaman absensi.
 
 ```bash
 cd ai-engine
+pip install cmake
 pip install -r requirements.txt
 python main.py
 ```
