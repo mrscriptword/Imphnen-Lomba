@@ -1,6 +1,8 @@
 opencv-python
-numpy
-face_recognition
 ultralytics
+face_recognition
+pymongo
+python-dotenv
 pyttsx3
-dlib
+numpy
+requests
