@@ -3,13 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Absensi Live Camera</title>
+    <title>Registrasi Wajah Pegawai</title>
     <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f2f5; margin: 0; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 90%; max-width: 400px; text-align: center; }
-        h2 { margin-bottom: 15px; color: #333; }
+        :root {
+            --bg-dark: #0f172a;
+            --card-dark: #1e293b;
+            --text-light: #e2e8f0;
+            --text-muted: #94a3b8;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-blue: #3b82f6;
+            --border-color: #334155;
+        }
+
+        body { 
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            background-color: var(--bg-dark); 
+            margin: 0; 
+            color: var(--text-light);
+        }
+
+        .card { 
+            background: var(--card-dark); 
+            padding: 25px; 
+            border-radius: 16px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); 
+            width: 90%; 
+            max-width: 420px; 
+            text-align: center; 
+            border: 1px solid var(--border-color);
+        }
+
+        h2 { 
+            margin-top: 0;
+            margin-bottom: 5px; 
+            color: var(--text-light); 
+            font-weight: 600;
+        }
+
+        .subtitle {
+            font-size: 0.9rem; 
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
         
-        /* Area Kamera */
+        /* Area Kamera dengan Efek Tech */
+        .camera-wrapper {
+            position: relative;
+            padding: 5px;
+            border: 2px dashed var(--border-color);
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
         .camera-container {
             position: relative;
             width: 100%;
@@ -17,46 +67,121 @@
             background: #000;
             border-radius: 8px;
             overflow: hidden;
-            margin-bottom: 15px;
         }
-        video, canvas {
-            width: 100%;
-            height: 100%;
-            object-fit: cover; /* Agar video full kotak tanpa gepeng */
-        }
-        canvas { display: none; } /* Sembunyikan canvas di awal */
 
-        input { width: 90%; padding: 12px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; }
+        video, canvas { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+            transform: scaleX(-1); /* Mirror effect agar natural */
+        }
         
-        /* Tombol */
+        canvas { display: none; }
+
+        /* Overlay Scan Line Animation */
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+            animation: scan 3s infinite linear;
+            opacity: 0.6;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        @keyframes scan {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+
+        /* Input Styling */
+        input { 
+            width: 100%; 
+            padding: 14px; 
+            margin-bottom: 20px; 
+            background-color: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 8px; 
+            font-size: 16px; 
+            color: white;
+            box-sizing: border-box; /* Agar padding tidak merusak width */
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            border-color: var(--accent-blue);
+        }
+
+        input::placeholder {
+            color: #64748b;
+        }
+        
+        /* Tombol Styling */
         .btn-group { display: flex; gap: 10px; justify-content: center; }
-        button { flex: 1; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; color: white; }
-        #btnCapture { background: #007bff; }
-        #btnRetake { background: #6c757d; display: none; }
-        #btnSubmit { background: #28a745; display: none; margin-top: 10px; width: 100%; }
         
-        button:disabled { background: #ccc; cursor: not-allowed; }
+        button { 
+            flex: 1; 
+            padding: 14px; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 15px; 
+            font-weight: 600; 
+            color: white;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+
+        button:active { transform: scale(0.98); }
+        button:hover { opacity: 0.9; }
+
+        #btnCapture { background: var(--accent-blue); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+        #btnRetake { background: #475569; display: none; }
+        #btnSubmit { background: var(--accent-green); display: none; margin-top: 15px; width: 100%; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3); }
+        
+        button:disabled { background: #334155; cursor: not-allowed; color: #94a3b8; box-shadow: none; }
+
+        /* Badge Status */
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--accent-green);
+            margin-bottom: 15px;
+            border: 1px solid rgba(34, 197, 94, 0.2);
+        }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2>📸 Absensi Live</h2>
-        <p style="font-size: 0.9rem; color: #666;">Pastikan wajah terlihat jelas.</p>
+        <div class="status-badge">● Sistem Online</div>
+        <h2>Registrasi Wajah</h2>
+        <p class="subtitle">Daftarkan wajah pegawai untuk akses AI.</p>
         
-        <input type="text" id="name" placeholder="Masukkan Nama Anda" autocomplete="off">
-
-        <div class="camera-container">
-            <video id="video" autoplay playsinline></video>
-            <canvas id="canvas"></canvas>
+        <div class="camera-wrapper">
+            <div class="camera-container">
+                <div class="scan-line" id="scanLine"></div>
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas"></canvas>
+            </div>
         </div>
+
+        <input type="text" id="name" placeholder="Ketik Nama Pegawai (Wajib)" autocomplete="off">
 
         <div class="btn-group">
             <button id="btnCapture">📸 Ambil Foto</button>
-            <button id="btnRetake">🔄 Ulangi</button>
+            <button id="btnRetake">🔄 Foto Ulang</button>
         </div>
         
-        <button id="btnSubmit">🚀 Kirim Absensi</button>
+        <button id="btnSubmit">💾 Simpan Data</button>
     </div>
 
     <script>
@@ -66,12 +191,12 @@
         const btnRetake = document.getElementById('btnRetake');
         const btnSubmit = document.getElementById('btnSubmit');
         const nameInput = document.getElementById('name');
+        const scanLine = document.getElementById('scanLine');
         let stream = null;
 
-        // 1. Nyalakan Kamera saat halaman dibuka
+        // 1. Nyalakan Kamera
         async function startCamera() {
             try {
-                // facingMode: 'user' artinya kamera depan (selfie)
                 stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
                 video.srcObject = stream;
             } catch (err) {
@@ -85,51 +210,55 @@
         btnCapture.addEventListener('click', () => {
             if (!stream) return alert("Kamera belum siap!");
 
-            // Sesuaikan ukuran canvas dengan video asli
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             
-            // Gambar frame video ke canvas
             const ctx = canvas.getContext('2d');
+            // Flip canvas agar sesuai dengan preview video yang di-mirror CSS
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // UI: Sembunyikan video, tampilkan hasil foto
+            // UI Changes
             video.style.display = 'none';
             canvas.style.display = 'block';
+            scanLine.style.display = 'none'; // Stop animasi scan saat foto diambil
             
-            // UI: Ganti tombol
             btnCapture.style.display = 'none';
             btnRetake.style.display = 'block';
             btnSubmit.style.display = 'block';
         });
 
-        // 3. Fungsi Ulangi Foto
+        // 3. Fungsi Ulangi
         btnRetake.addEventListener('click', () => {
-            // UI: Kembalikan ke mode video
             video.style.display = 'block';
             canvas.style.display = 'none';
+            scanLine.style.display = 'block'; // Nyalakan lagi scan line
             
             btnCapture.style.display = 'block';
             btnRetake.style.display = 'none';
             btnSubmit.style.display = 'none';
         });
 
-        // 4. Fungsi Kirim ke Backend
+        // 4. Fungsi Kirim
         btnSubmit.addEventListener('click', () => {
             const name = nameInput.value.trim();
-            if (!name) return alert("Harap isi nama dulu!");
+            if (!name) {
+                nameInput.style.borderColor = '#ef4444'; // Merah jika kosong
+                return alert("⚠️ Harap isi nama pegawai!");
+            }
 
-            btnSubmit.innerText = "Mengirim...";
+            btnSubmit.innerText = "⏳ Mengirim...";
             btnSubmit.disabled = true;
 
-            // Konversi Canvas menjadi Blob (File Gambar)
             canvas.toBlob(async (blob) => {
                 const formData = new FormData();
                 formData.append('name', name);
-                // Kita beri nama file 'capture.jpg', backend akan merename-nya jadi NAMA.jpg
+                // Nama file akan diproses di backend (biasanya diganti jadi NAMA.jpg)
                 formData.append('photo', blob, 'capture.jpg'); 
 
                 try {
+                    // Pastikan route backend ini benar
                     const res = await fetch('/api/attendance/register', {
                         method: 'POST',
                         body: formData
@@ -137,19 +266,25 @@
                     const result = await res.json();
 
                     if (res.ok) {
-                        alert("✅ " + result.message);
-                        window.location.reload(); // Refresh halaman setelah sukses
+                        alert("✅ Berhasil! Pegawai terdaftar.");
+                        window.location.reload(); 
                     } else {
                         alert("❌ Gagal: " + result.error);
-                        btnSubmit.innerText = "🚀 Kirim Absensi";
+                        btnSubmit.innerText = "💾 Simpan Data";
                         btnSubmit.disabled = false;
                     }
                 } catch (err) {
-                    alert("❌ Koneksi Error (Pastikan Server Nyala)");
-                    btnSubmit.innerText = "🚀 Kirim Absensi";
+                    alert("❌ Error Koneksi ke Server");
+                    console.error(err);
+                    btnSubmit.innerText = "💾 Simpan Data";
                     btnSubmit.disabled = false;
                 }
-            }, 'image/jpeg', 0.8); // Format JPG, Kualitas 80%
+            }, 'image/jpeg', 0.8);
+        });
+
+        // Reset warna border input saat diketik
+        nameInput.addEventListener('input', () => {
+            nameInput.style.borderColor = '#334155';
         });
     </script>
 </body>
