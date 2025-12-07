@@ -117,15 +117,6 @@ PORT=5000
 * Lokasi zona (mis. area mesin kopi) dikonfig di `ai-engine` (biasanya berupa koordinat bounding box atau persentase frame).
 * Threshold durasi (mis. 3 detik untuk HP, 4 detik untuk pembuatan kopi) dikonfig di `config.py` atau file konfigurasi sejenis di `ai-engine`.
 
----
-
-## 🔁 Hot-Reload Face DB — Implementasi Singkat
-
-* Backend menyimpan file foto wajah ke `/ai-engine/data_wajah/<employee_id>/`.
-* AI men-watcher folder (mis. `watchdog` atau memeriksa perubahan timestamp). Saat ada file baru, AI memanggil fungsi reindex face-encoder dan menambahkan ke database memori tanpa proses restart berat.
-* Pastikan proses permission dan user/owner file sesuai agar AI dapat membaca file baru.
-
----
 
 ## 🔍 Troubleshooting Umum
 
@@ -184,10 +175,5 @@ Proyek ini dibuat untuk Kompetisi Inovasi AI & Riset Edukasi. Tidak diperbolehka
 
 ## Catatan Penutup
 
-README ini telah dirapikan agar lebih mudah diikuti dan dipasang. Jika Anda mau, saya bisa:
-
-* Buatkan file `README.md` siap pakai, atau
-* Terjemahkan ke Bahasa Inggris, atau
-* Membuat checklist `deployment` untuk server produksi (Docker, systemd, env secrets).
 
 Terima kasih — dibuat dengan ❤️ dan kopi ☕
