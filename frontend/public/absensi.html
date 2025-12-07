@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absensi Live Camera</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f2f5; margin: 0; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 90%; max-width: 400px; text-align: center; }
+        h2 { margin-bottom: 15px; color: #333; }
+        
+        /* Area Kamera */
+        .camera-container {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        video, canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Agar video full kotak tanpa gepeng */
+        }
+        canvas { display: none; } /* Sembunyikan canvas di awal */
+
+        input { width: 90%; padding: 12px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; }
+        
+        /* Tombol */
+        .btn-group { display: flex; gap: 10px; justify-content: center; }
+        button { flex: 1; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; color: white; }
+        #btnCapture { background: #007bff; }
+        #btnRetake { background: #6c757d; display: none; }
+        #btnSubmit { background: #28a745; display: none; margin-top: 10px; width: 100%; }
+        
+        button:disabled { background: #ccc; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>📸 Absensi Live</h2>
+        <p style="font-size: 0.9rem; color: #666;">Pastikan wajah terlihat jelas.</p>
+        
+        <input type="text" id="name" placeholder="Masukkan Nama Anda" autocomplete="off">
+
+        <div class="camera-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="btn-group">
+            <button id="btnCapture">📸 Ambil Foto</button>
+            <button id="btnRetake">🔄 Ulangi</button>
+        </div>
+        
+        <button id="btnSubmit">🚀 Kirim Absensi</button>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const btnCapture = document.getElementById('btnCapture');
+        const btnRetake = document.getElementById('btnRetake');
+        const btnSubmit = document.getElementById('btnSubmit');
+        const nameInput = document.getElementById('name');
+        let stream = null;
+
+        // 1. Nyalakan Kamera saat halaman dibuka
+        async function startCamera() {
+            try {
+                // facingMode: 'user' artinya kamera depan (selfie)
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+                video.srcObject = stream;
+            } catch (err) {
+                alert("Gagal akses kamera: " + err);
+                console.error(err);
+            }
+        }
+        startCamera();
+
+        // 2. Fungsi Ambil Foto
+        btnCapture.addEventListener('click', () => {
+            if (!stream) return alert("Kamera belum siap!");
+
+            // Sesuaikan ukuran canvas dengan video asli
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            // Gambar frame video ke canvas
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // UI: Sembunyikan video, tampilkan hasil foto
+            video.style.display = 'none';
+            canvas.style.display = 'block';
+            
+            // UI: Ganti tombol
+            btnCapture.style.display = 'none';
+            btnRetake.style.display = 'block';
+            btnSubmit.style.display = 'block';
+        });
+
+        // 3. Fungsi Ulangi Foto
+        btnRetake.addEventListener('click', () => {
+            // UI: Kembalikan ke mode video
+            video.style.display = 'block';
+            canvas.style.display = 'none';
+            
+            btnCapture.style.display = 'block';
+            btnRetake.style.display = 'none';
+            btnSubmit.style.display = 'none';
+        });
+
+        // 4. Fungsi Kirim ke Backend
+        btnSubmit.addEventListener('click', () => {
+            const name = nameInput.value.trim();
+            if (!name) return alert("Harap isi nama dulu!");
+
+            btnSubmit.innerText = "Mengirim...";
+            btnSubmit.disabled = true;
+
+            // Konversi Canvas menjadi Blob (File Gambar)
+            canvas.toBlob(async (blob) => {
+                const formData = new FormData();
+                formData.append('name', name);
+                // Kita beri nama file 'capture.jpg', backend akan merename-nya jadi NAMA.jpg
+                formData.append('photo', blob, 'capture.jpg'); 
+
+                try {
+                    const res = await fetch('/api/attendance/register', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await res.json();
+
+                    if (res.ok) {
+                        alert("✅ " + result.message);
+                        window.location.reload(); // Refresh halaman setelah sukses
+                    } else {
+                        alert("❌ Gagal: " + result.error);
+                        btnSubmit.innerText = "🚀 Kirim Absensi";
+                        btnSubmit.disabled = false;
+                    }
+                } catch (err) {
+                    alert("❌ Koneksi Error (Pastikan Server Nyala)");
+                    btnSubmit.innerText = "🚀 Kirim Absensi";
+                    btnSubmit.disabled = false;
+                }
+            }, 'image/jpeg', 0.8); // Format JPG, Kualitas 80%
+        });
+    </script>
+</body>
+</html>
